@@ -1,0 +1,81 @@
+# 静岡市北部（南アルプス）オルソ画像（VIRTUAL SHIZUOKA 静岡県 北部）
+#
+# 同じ静岡市でも、中・西部（config/shizuoka-city.conf.example）とは別のデータセットで
+# 諸元・ライセンスが異なる。auto 判定に任せればそのまま通るが、差は把握しておくこと。
+#
+#   出典: 静岡県（VIRTUAL SHIZUOKA 静岡県 北部（南アルプス） 点群データ）
+#   ライセンス: クリエイティブ・コモンズ 表示（CC BY）
+#   計測年度: 令和4年度 ／ 計測密度 4点/m2 以上
+#   本成果の作成に当たっては、関東森林管理局長の承認を得て、航空レーザ計測データを
+#   使用した（承認番号 5関治第142号-1）
+#   カタログ: https://www.geospatial.jp/ckan/dataset/shizuoka-2022-pointcloud
+#
+# 中・西部との違い（Step 1 の検査結果）:
+#   GSD          0.25 m/px（中・西部は 0.20 m/px）
+#   図郭         1000m × 750m・4000×3000 px（中・西部は 400m × 300m・2000×1500 px）
+#   CRS          GeoTIFF に埋め込みあり（中・西部は TFW のみ）。ただし埋め込み WKT が
+#                EPSG レジストリと一致せず GDAL が警告を出すため、SRC_SRS を EPSG コードで
+#                明示して正規化する
+#   図郭外の余白 白で塗られている（中・西部は余白なし）。透過処理が必要
+#
+# 使い方:
+#   cp config/shizuoka-north.conf.example config/shizuoka-north.conf
+#   ./scripts/00_build_mesh_list.sh config/shizuoka-north.conf
+#   ./scripts/00_fetch_data.sh      config/shizuoka-north.conf
+#   ./scripts/run_pipeline.sh       config/shizuoka-north.conf
+
+# --- 識別子 -------------------------------------------------------------------
+
+DATASET_ID="shizuoka-north"
+DATASET_NAME="静岡市北部（南アルプス） オルソ画像（VIRTUAL SHIZUOKA）"
+
+# --- Step 0: 図郭リスト作成とダウンロード -------------------------------------
+
+MESH_INDEX_URL="https://gic-shizuoka.s3.ap-northeast-1.amazonaws.com/2023/Vectortile2025/s-alps/ORTHO/{z}/{x}/{y}.pbf"
+
+# 静岡市域で切る（北部データセット自体は市域外にも広がっている）
+MESH_BOUNDARY="https://uedayou.net/loa/%E9%9D%99%E5%B2%A1%E7%9C%8C%E9%9D%99%E5%B2%A1%E5%B8%82.geojson"
+MESH_INDEX_ZOOM="12"
+
+# サンプルとして小さい範囲だけ扱う場合はこの 2 行を有効にする
+#MESH_NEAR="138.25,35.45"
+#MESH_COUNT="12"
+
+FETCH_JOBS="12"
+
+# --- 入力 ---------------------------------------------------------------------
+
+SRC_DIR="data/shizuoka-north"
+SRC_EXT="auto"
+
+# GeoTIFF に CRS は入っているが、埋め込み WKT が EPSG レジストリと一致しない
+# （BASEGEOGCRS が unknown／unnamed datum になっており GDAL が警告を出す）。
+# EPSG コードで明示して正規化する。JGD2011 平面直角座標系 第VIII系
+SRC_SRS="EPSG:6676"
+
+# 図郭外が白で塗られているため透過処理が必要。auto で外周画素から判定させる
+# （このデータセットでは "255 255 255" と判定される）
+NODATA="auto"
+
+# --- ズームレベル -------------------------------------------------------------
+
+MIN_ZOOM="9"
+
+# GSD 0.25 m/px → ZL19（緯度 35.4° で解像度 0.243 m/px）が自動選定される
+MAX_ZOOM="auto"
+
+# --- 出力形式 -----------------------------------------------------------------
+
+TILE_FORMAT="webp"
+WEBP_QUALITY="85"
+RESAMPLING="average"
+
+# --- 配信メタデータ -----------------------------------------------------------
+
+ATTRIBUTION="<a href=\"https://www.geospatial.jp/ckan/dataset/shizuoka-2022-pointcloud\">静岡県（VIRTUAL SHIZUOKA 静岡県 北部（南アルプス） 点群データ）</a> (CC BY) ／ 関東森林管理局承認 5関治第142号-1"
+TILE_URL_TEMPLATE=""
+
+# --- 実行環境 -----------------------------------------------------------------
+
+JOBS=""
+VRT_EXTRA_OPTS=""

@@ -161,8 +161,11 @@ def map_level_from_extent(width_m: float, height_m: float) -> str | None:
 def border_fill(ds: gdal.Dataset, strip: int = 4) -> dict[str, Any]:
     """外周の画素を実測し、図郭外の余白として塗られている色を推定する。
 
-    余白があれば外周は単色で埋まる。外周に占める最多色の割合と、
-    その色が画像全体で占める割合の両方を返し、透過処理の判断材料にする。
+    余白があれば外周にその色が現れる。外周に占める最多色の割合と、
+    純白・純黒それぞれの割合、および画像全体で占める割合を返す。
+
+    純白・純黒を別に測るのは、航空写真では実際の地物が全バンド 255（または 0）に
+    飽和することがほとんど無く、余白の強い証拠になるため。
     """
     w, h = ds.RasterXSize, ds.RasterYSize
     bands = min(ds.RasterCount, 3)
@@ -179,9 +182,12 @@ def border_fill(ds: gdal.Dataset, strip: int = 4) -> dict[str, Any]:
     colors = [tuple(int(v) for v in edges[:, i]) for i in range(edges.shape[1])]
     counter = collections.Counter(colors)
     top_color, top_count = counter.most_common(1)[0]
-    border_ratio = top_count / len(colors)
+    n = len(colors)
 
-    # その色が画像全体で占める割合（間引いて概算）
+    white = tuple([255] * bands)
+    black = tuple([0] * bands)
+
+    # 画像全体での割合（間引いて概算）
     step = max(1, min(w, h) // 512)
     full = np.asarray(
         ds.ReadAsArray(
@@ -190,15 +196,21 @@ def border_fill(ds: gdal.Dataset, strip: int = 4) -> dict[str, Any]:
             band_list=list(range(1, bands + 1)),
         )
     ).reshape(bands, -1)
-    match = np.ones(full.shape[1], dtype=bool)
-    for b in range(bands):
-        match &= full[b] == top_color[b]
-    whole_ratio = float(match.mean())
+
+    def whole_share(color: tuple[int, ...]) -> float:
+        m = np.ones(full.shape[1], dtype=bool)
+        for b in range(bands):
+            m &= full[b] == color[b]
+        return float(m.mean())
 
     return {
         "border_color": list(top_color),
-        "border_ratio": round(border_ratio, 4),
-        "whole_ratio": round(whole_ratio, 6),
+        "border_ratio": round(top_count / n, 4),
+        "border_white_ratio": round(counter.get(white, 0) / n, 4),
+        "border_black_ratio": round(counter.get(black, 0) / n, 4),
+        "whole_ratio": round(whole_share(top_color), 6),
+        "whole_white_ratio": round(whole_share(white), 6),
+        "whole_black_ratio": round(whole_share(black), 6),
     }
 
 
@@ -342,34 +354,59 @@ def _lat_from_assumed_srs(info: dict[str, Any], assume_srs: str) -> float | None
     return lat
 
 
+# 外周に純白／純黒がこの割合以上あれば余白とみなす（航空写真の地物は飽和しにくい）
+EXTREME_BORDER_THRESHOLD = 0.02
+# 純白・純黒以外の色の場合は、外周がほぼ単色で埋まっていることを要求する
+FILL_BORDER_THRESHOLD = 0.5
+
+
 def suggest_nodata(files: list[dict[str, Any]]) -> tuple[str, str]:
     """外周画素の実測から、透過処理に使う NoData 値を提案する。
 
     戻り値は (提案値, 理由)。透過処理が不要なら提案値は空文字。
     """
-    # 外周が単色で埋まっているファイルだけを余白候補として見る
-    filled = [f for f in files if f["border"]["border_ratio"] >= 0.5]
-    if not filled:
-        top = max(files, key=lambda f: f["border"]["border_ratio"])
+    n = len(files)
+    white_hits = [f for f in files if f["border"]["border_white_ratio"] >= EXTREME_BORDER_THRESHOLD]
+    black_hits = [f for f in files if f["border"]["border_black_ratio"] >= EXTREME_BORDER_THRESHOLD]
+
+    def extreme_reason(hits: list[dict[str, Any]], label: str, key: str) -> str:
+        ratios = [f["border"][key] for f in hits]
         return (
-            "",
-            "どのファイルも外周が単色で埋まっていない"
-            f"（最大でも {top['border']['border_ratio'] * 100:.0f}%）ため、"
-            "図郭外の余白は無いと判断（透過処理は不要）",
+            f"{len(hits)}/{n} ファイルの外周に{label}が "
+            f"{min(ratios) * 100:.0f}〜{max(ratios) * 100:.0f}% 含まれる"
+            f"（しきい値 {EXTREME_BORDER_THRESHOLD * 100:.0f}%）。"
+            "航空写真の地物は全バンド飽和しにくいため余白と判断"
         )
 
-    counter = collections.Counter(tuple(f["border"]["border_color"]) for f in filled)
-    color, count = counter.most_common(1)[0]
-    value = " ".join(str(v) for v in color)
-    shares = [f["border"]["whole_ratio"] for f in filled if tuple(f["border"]["border_color"]) == color]
-    avg_share = sum(shares) / len(shares)
-    reason = (
-        f"{count}/{len(files)} ファイルの外周が {value} で埋まっている"
-        f"（該当色は画像全体の平均 {avg_share * 100:.2f}%）"
+    if white_hits and black_hits:
+        return "", (
+            f"外周に純白を含むファイル {len(white_hits)}/{n} 件と、"
+            f"純黒を含むファイル {len(black_hits)}/{n} 件が混在している。"
+            "どちらが図郭外かを確認し NODATA を手動で指定してください"
+        )
+    if white_hits:
+        return "255 255 255", extreme_reason(white_hits, "純白", "border_white_ratio")
+    if black_hits:
+        return "0 0 0", extreme_reason(black_hits, "純黒", "border_black_ratio")
+
+    # 純白・純黒以外の色で塗られているケース
+    filled = [f for f in files if f["border"]["border_ratio"] >= FILL_BORDER_THRESHOLD]
+    if filled:
+        counter = collections.Counter(tuple(f["border"]["border_color"]) for f in filled)
+        color, count = counter.most_common(1)[0]
+        value = " ".join(str(v) for v in color)
+        return value, (
+            f"{count}/{n} ファイルの外周が {value} でほぼ埋まっている"
+            f"（しきい値 {FILL_BORDER_THRESHOLD * 100:.0f}%）。"
+            "純白・純黒ではないため、地物の色でないことを確認してください"
+        )
+
+    top = max(files, key=lambda f: f["border"]["border_ratio"])
+    return "", (
+        f"外周に純白・純黒がほとんど無く（各 {EXTREME_BORDER_THRESHOLD * 100:.0f}% 未満）、"
+        f"単色で埋まってもいない（最多色でも {top['border']['border_ratio'] * 100:.0f}%）ため、"
+        "図郭外の余白は無いと判断（透過処理は不要）"
     )
-    if avg_share > 0.5:
-        reason += "。ただし画像の大半を占めるため、余白ではなく地物の可能性も要確認"
-    return value, reason
 
 
 def summarize(files: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
@@ -484,7 +521,13 @@ def render_report(summary: dict[str, Any], files: list[dict[str, Any]], warnings
     lines.append(f"| ファイル数 | {summary['file_count']} |")
     lines.append(f"| GSD（地上解像度） | {gsd if gsd is None else f'{gsd:.4f} m/px'} |")
     lines.append(f"| GSD・原点の取得元 | {georef} |")
-    lines.append(f"| 図郭サイズ・地図情報レベル | {summary['map_level'] or '／'.join(summary['map_levels']) or '判定不可'} |")
+    sizes = sorted({tuple(round(v) for v in f["ground_size_m"]) for f in files if all(f["ground_size_m"])})
+    size_txt = "／".join(f"{w}×{h}m" for w, h in sizes) if sizes else "不明"
+    level = summary["map_level"] or "／".join(summary["map_levels"])
+    lines.append(
+        f"| 図郭の地上サイズ | {size_txt}"
+        f"{f'（地図情報レベル {level}）' if level else '（国土基本図の標準図郭サイズには一致せず）'} |"
+    )
     lines.append(f"| CRS | {summary['srs'] or '不明（要指定）'} |")
     if not summary["srs_embedded_all"]:
         lines.append(
@@ -552,8 +595,8 @@ def render_report(summary: dict[str, Any], files: list[dict[str, Any]], warnings
     lines += [
         "## ファイル別",
         "",
-        "| ファイル | 形式 | サイズ(px) | 地上サイズ(m) | GSD(m/px) | 取得元 | CRS | バンド | アルファ | NoData | 外周単色率 |",
-        "|---------|------|-----------|--------------|-----------|-------|-----|-------|---------|--------|-----------|",
+        "| ファイル | サイズ(px) | 地上サイズ(m) | GSD(m/px) | 取得元 | CRS | バンド | NoData | 外周の純白 | 外周の純黒 | 外周最多色 |",
+        "|---------|-----------|--------------|-----------|-------|-----|-------|--------|-----------|-----------|-----------|",
     ]
     short = {"world_file": "TFW/JGW", "internal": "画像内部"}
     for f in files:
@@ -561,12 +604,12 @@ def render_report(summary: dict[str, Any], files: list[dict[str, Any]], warnings
         gw, gh = f["ground_size_m"]
         ground = f"{gw:.0f}×{gh:.0f}" if (gw and gh) else "—"
         b = f["border"]
-        border = f"{b['border_ratio'] * 100:.0f}% {tuple(b['border_color'])}"
         lines.append(
-            f"| {f['file']} | {f['driver']} | {f['width']}×{f['height']} | {ground} | "
+            f"| {f['file']} | {f['width']}×{f['height']} | {ground} | "
             f"{f['gsd_x']:.4f} | {short.get(f['georef_source'], f['georef_source'])} | "
-            f"{f['srs'] or '—'} | {f['band_count']} | "
-            f"{'○' if f['has_alpha'] else '—'} | {nodata} | {border} |"
+            f"{f['srs'] or '—'} | {f['band_count']}{'(A)' if f['has_alpha'] else ''} | {nodata} | "
+            f"{b['border_white_ratio'] * 100:.0f}% | {b['border_black_ratio'] * 100:.0f}% | "
+            f"{b['border_ratio'] * 100:.0f}% {tuple(b['border_color'])} |"
         )
     lines.append("")
     return "\n".join(lines)

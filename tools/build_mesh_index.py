@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -178,12 +179,19 @@ def main() -> int:
     x0, y1 = deg2tile(bbox[0], bbox[1], z)
     x1, y0 = deg2tile(bbox[2], bbox[3], z)
     tiles = [(z, x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
+
+    # キャッシュは索引 URL ごとに分ける。z/x/y だけをキーにすると、
+    # 別のデータセットの索引が同じパスに衝突して図郭が混ざる。
+    cache_root = os.path.join(
+        args.cache_dir, hashlib.sha1(args.index_url.encode()).hexdigest()[:10]
+    )
     print(f"索引タイル: ZL{z} を {len(tiles)} 枚取得（並列 {args.jobs}）")
+    print(f"  キャッシュ: {cache_root}")
 
     def get(t: tuple[int, int, int]) -> tuple[tuple[int, int, int], str | None]:
         tz, tx, ty = t
         url = args.index_url.replace("{z}", str(tz)).replace("{x}", str(tx)).replace("{y}", str(ty))
-        dest = os.path.join(args.cache_dir, str(tz), str(tx), f"{ty}.pbf")
+        dest = os.path.join(cache_root, str(tz), str(tx), f"{ty}.pbf")
         return t, fetch_tile(url, dest)
 
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
