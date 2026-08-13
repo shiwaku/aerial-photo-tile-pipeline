@@ -35,14 +35,15 @@ require_cmd() {
 DATASET_ID=""            # 出力ディレクトリ名・TileJSON の name に使う識別子
 DATASET_NAME=""          # 人が読む名称（TileJSON の name）
 SRC_DIR=""               # 入力画像ディレクトリ
-SRC_EXT="tif"            # 入力画像の拡張子（tif / jpg など）
-SRC_SRS=""               # 入力の CRS（例: EPSG:6673）。ファイルに CRS が無い場合は必須
-NODATA=""                # 図郭外の色（例: "255 255 255" / "0 0 0"）。空なら透過処理をしない
+SRC_EXT="auto"           # 入力画像の拡張子（tif / jpg など）。auto で混在も受け付ける
+SRC_SRS="auto"           # 入力の CRS（例: EPSG:6676）。auto で座標値から系番号を推定
+NODATA="auto"            # 図郭外の余白色（"255 255 255" 等）。auto で外周画素から判定、空で透過処理なし
 MIN_ZOOM="9"
 MAX_ZOOM="auto"          # auto = GSD から自動決定
 TILE_FORMAT="webp"       # webp | png
 WEBP_QUALITY="85"        # 非可逆の品質。lossless にすると可逆
 RESAMPLING="average"
+RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e）
 JOBS=""                  # 並列数。空なら nproc
 ATTRIBUTION=""           # TileJSON の attribution（出典表記）
 TILE_URL_TEMPLATE=""     # 例: https://example.com/data/foo/latest/tiles/{z}/{x}/{y}.webp
@@ -84,10 +85,48 @@ load_conf() {
   mkdir -p "$WORK_DIR"
 }
 
+# SRC_EXT="auto" のときに受け付ける拡張子
+AUTO_EXTS=(tif tiff jpg jpeg png)
+
 # 入力画像の一覧を NUL 区切りで出力（サブディレクトリは辿らない）
 list_sources() {
   [ -d "$SRC_DIR" ] || die "SRC_DIR が存在しません: $SRC_DIR（Step 0 でデータを取得するか、手動で配置してください）"
-  find "$SRC_DIR" -maxdepth 1 -type f -iname "*.${SRC_EXT}" -print0 | sort -z
+  if [ "$SRC_EXT" = "auto" ]; then
+    local expr=()
+    for e in "${AUTO_EXTS[@]}"; do
+      [ "${#expr[@]}" -eq 0 ] || expr+=(-o)
+      expr+=(-iname "*.$e")
+    done
+    find "$SRC_DIR" -maxdepth 1 -type f \( "${expr[@]}" \) -print0 | sort -z
+  else
+    find "$SRC_DIR" -maxdepth 1 -type f -iname "*.${SRC_EXT}" -print0 | sort -z
+  fi
+}
+
+# 入力に含まれる拡張子（小文字・重複なし）を改行区切りで出力
+source_exts() {
+  list_sources | tr '\0' '\n' | sed -n 's/.*\.\([^.]*\)$/\1/p' | tr '[:upper:]' '[:lower:]' | sort -u
+}
+
+# --- auto 値の解決 -----------------------------------------------------------
+# いずれも Step 1 の検査結果を根拠にする。
+
+# 入力 CRS。SRC_SRS が auto／空なら検査結果（埋め込み CRS または座標値からの推定）を使う
+resolve_srs() {
+  if [ -n "$SRC_SRS" ] && [ "$SRC_SRS" != "auto" ]; then
+    printf '%s' "$SRC_SRS"
+  else
+    inspect_value srs
+  fi
+}
+
+# 図郭外の余白色。NODATA が auto なら外周画素の実測から判定した値を使う
+resolve_nodata() {
+  if [ "$NODATA" = "auto" ]; then
+    inspect_value nodata_suggestion
+  else
+    printf '%s' "$NODATA"
+  fi
 }
 
 # inspect の結果から値を取り出す（jq 不要・Python 使用）

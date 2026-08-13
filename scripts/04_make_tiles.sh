@@ -23,8 +23,7 @@ fi
 [ "$MIN_ZOOM" -le "$max_zoom" ] || die "MIN_ZOOM($MIN_ZOOM) が最大ZL($max_zoom) を超えています"
 
 # --- CRS ---------------------------------------------------------------------
-src_srs="$SRC_SRS"
-[ -n "$src_srs" ] || src_srs="$(inspect_value srs)"
+src_srs="$(resolve_srs)"
 [ -n "$src_srs" ] || die "入力 CRS が不明です。設定で SRC_SRS を指定してください"
 
 # --- 出力形式 ----------------------------------------------------------------
@@ -50,17 +49,27 @@ esac
 
 # --- NoData ------------------------------------------------------------------
 # 前処理でアルファバンドを付けている場合は gdal2tiles 側の指定は不要。
+nodata="$(resolve_nodata)"
 nodata_args=()
-if [ -d "$PREPARED_DIR" ] && [ -n "$NODATA" ]; then
+if [ -z "$nodata" ]; then
+  log "NoData: 透過処理なし"
+elif [ -d "$PREPARED_DIR" ]; then
   log "NoData: 前処理済みのアルファバンドを使用"
-elif [ -n "$NODATA" ]; then
-  nodata_args=(--srcnodata="${NODATA// /,}")
-  log "NoData: gdal2tiles で ${NODATA} を透過扱い"
+else
+  nodata_args=(--srcnodata="${nodata// /,}")
+  log "NoData: gdal2tiles で ${nodata} を透過扱い"
+fi
+
+resume_args=()
+if [ "$RESUME" = "true" ]; then
+  resume_args=(-e)
+  log "再開モード: 既存タイルを残し不足分のみ生成"
 fi
 
 log "ZL範囲: $MIN_ZOOM-$max_zoom / CRS: $src_srs / 並列: $JOBS"
 
 gdal2tiles \
+  "${resume_args[@]}" \
   --s_srs "$src_srs" \
   --xyz \
   -z "${MIN_ZOOM}-${max_zoom}" \

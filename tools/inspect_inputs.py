@@ -5,6 +5,10 @@
 - ファイル間で不一致があれば警告する（バンド数混在・NoData 未設定など、
   gdalbuildvrt / gdal2tiles でつまずく典型パターンの事前検出）
 - GSD から推奨最大ズームレベルを算出する
+- 案件ごとに違う値を実データから推定する
+  - CRS が無い場合の平面直角座標系の系番号（座標値と図郭コードの両方から）
+  - 図郭外の余白色（外周画素の実測。透過処理が必要かどうかの判断材料）
+  - 図郭サイズから地図情報レベル
 
 出力: inputs.json（機械可読）と report.md（人が読むレポート）
 """
@@ -12,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import math
 import os
@@ -19,14 +24,27 @@ import sys
 from typing import Any
 
 try:
+    import numpy as np
     from osgeo import gdal, osr
 except ImportError:  # pragma: no cover
-    sys.exit("GDAL の Python バインディング（osgeo）が必要です")
+    sys.exit("GDAL の Python バインディング（osgeo）と numpy が必要です")
 
 gdal.UseExceptions()
 
 # Web メルカトルの赤道上 ZL0 解像度（256px タイル、m/px）
 EQUATOR_RES_Z0 = 2 * math.pi * 6378137.0 / 256.0  # = 156543.033928...
+
+# JGD2011 平面直角座標系。第 n 系 = EPSG:(6668 + n)
+JGD2011_ZONE_EPSG_BASE = 6668
+JGD2011_ZONES = range(1, 20)
+
+# 国土基本図の図郭サイズ（縦 m × 横 m）→ 地図情報レベル
+MAP_LEVELS = [
+    (300.0, 400.0, "500（1/500）"),
+    (600.0, 800.0, "1000（1/1,000）"),
+    (1500.0, 2000.0, "2500（1/2,500）"),
+    (3000.0, 4000.0, "5000（1/5,000）"),
+]
 
 
 def mercator_resolution(zoom: int, lat_deg: float) -> float:
@@ -45,6 +63,143 @@ def recommend_max_zoom(gsd: float, lat_deg: float) -> int:
         raise ValueError(f"GSD が不正です: {gsd}")
     z = round(math.log2(EQUATOR_RES_Z0 * math.cos(math.radians(lat_deg)) / gsd))
     return max(0, min(24, int(z)))
+
+
+def plausible_plane_zones(info: dict[str, Any]) -> list[dict[str, Any]]:
+    """座標値だけから見て「ありえる」平面直角座標系の一覧を返す。
+
+    注意: これは系番号の**選定**には使えない。平面直角座標系は各系の原点が
+    自系の適用範囲内にあるため、ある (x, y) は多くの系で自系の範囲内に落ちる。
+    ここで求めるのは候補の絞り込みと、指定・推定した系の妥当性検証まで。
+    """
+    cc = info.get("cornerCoordinates") or {}
+    center = cc.get("center")
+    if not center:
+        return []
+
+    wgs84 = osr.SpatialReference()
+    wgs84.ImportFromEPSG(4326)
+    wgs84.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    out = []
+    for zone in JGD2011_ZONES:
+        epsg = JGD2011_ZONE_EPSG_BASE + zone
+        srs = osr.SpatialReference()
+        try:
+            srs.ImportFromEPSG(epsg)
+        except RuntimeError:
+            continue
+        srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        try:
+            tr = osr.CoordinateTransformation(srs, wgs84)
+            lon, lat, _ = tr.TransformPoint(float(center[0]), float(center[1]))
+        except RuntimeError:
+            continue
+
+        area = srs.GetAreaOfUse()
+        if area is None:
+            continue
+        if (
+            area.west_lon_degree <= lon <= area.east_lon_degree
+            and area.south_lat_degree <= lat <= area.north_lat_degree
+        ):
+            out.append(
+                {
+                    "zone": zone,
+                    "epsg": f"EPSG:{epsg}",
+                    "lon": lon,
+                    "lat": lat,
+                    "area_name": area.name,
+                }
+            )
+    return out
+
+
+def resolve_srs_candidate(
+    info: dict[str, Any], name_zone: int | None
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str]:
+    """CRS が無い画像について、採用する系と根拠を決める。
+
+    図郭コード先頭 2 桁は国土基本図の図郭コードで系番号を表す規約なので、
+    これを第一の根拠にする。座標値から見た候補一覧で妥当性を検証する。
+    """
+    plausible = plausible_plane_zones(info)
+    by_zone = {c["zone"]: c for c in plausible}
+
+    if name_zone is not None and name_zone in by_zone:
+        return by_zone[name_zone], plausible, "図郭コード先頭2桁（座標値の適用範囲とも整合）"
+    if name_zone is not None and plausible:
+        return None, plausible, (
+            f"図郭コード先頭2桁は第{name_zone}系を示すが、座標値がその系の適用範囲に収まらない"
+        )
+    if len(plausible) == 1:
+        return plausible[0], plausible, "座標値から見て候補が1系のみ"
+    if plausible:
+        return None, plausible, f"座標値だけでは {len(plausible)} 系に絞れない"
+    return None, plausible, "座標値がどの系の適用範囲にも収まらない"
+
+
+def zone_from_filename(path: str) -> int | None:
+    """図郭コードの先頭 2 桁を系番号として読む（例: 08ND7783 → 第8系）。"""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if len(stem) >= 2 and stem[:2].isdigit():
+        zone = int(stem[:2])
+        if zone in JGD2011_ZONES:
+            return zone
+    return None
+
+
+def map_level_from_extent(width_m: float, height_m: float) -> str | None:
+    """図郭の地上サイズから地図情報レベルを推定する（縦横は入れ替わりを許容）。"""
+    for ns, ew, label in MAP_LEVELS:
+        for a, b in ((ns, ew), (ew, ns)):
+            if abs(height_m - a) / a < 0.02 and abs(width_m - b) / b < 0.02:
+                return label
+    return None
+
+
+def border_fill(ds: gdal.Dataset, strip: int = 4) -> dict[str, Any]:
+    """外周の画素を実測し、図郭外の余白として塗られている色を推定する。
+
+    余白があれば外周は単色で埋まる。外周に占める最多色の割合と、
+    その色が画像全体で占める割合の両方を返し、透過処理の判断材料にする。
+    """
+    w, h = ds.RasterXSize, ds.RasterYSize
+    bands = min(ds.RasterCount, 3)
+    s = min(strip, h // 2, w // 2) or 1
+
+    def read(xoff, yoff, xsize, ysize):
+        a = ds.ReadAsArray(xoff, yoff, xsize, ysize, band_list=list(range(1, bands + 1)))
+        return np.asarray(a).reshape(bands, -1)
+
+    edges = np.concatenate(
+        [read(0, 0, w, s), read(0, h - s, w, s), read(0, 0, s, h), read(w - s, 0, s, h)],
+        axis=1,
+    )
+    colors = [tuple(int(v) for v in edges[:, i]) for i in range(edges.shape[1])]
+    counter = collections.Counter(colors)
+    top_color, top_count = counter.most_common(1)[0]
+    border_ratio = top_count / len(colors)
+
+    # その色が画像全体で占める割合（間引いて概算）
+    step = max(1, min(w, h) // 512)
+    full = np.asarray(
+        ds.ReadAsArray(
+            buf_xsize=max(1, w // step),
+            buf_ysize=max(1, h // step),
+            band_list=list(range(1, bands + 1)),
+        )
+    ).reshape(bands, -1)
+    match = np.ones(full.shape[1], dtype=bool)
+    for b in range(bands):
+        match &= full[b] == top_color[b]
+    whole_ratio = float(match.mean())
+
+    return {
+        "border_color": list(top_color),
+        "border_ratio": round(border_ratio, 4),
+        "whole_ratio": round(whole_ratio, 6),
+    }
 
 
 def srs_code(wkt: str) -> str | None:
@@ -99,9 +254,17 @@ def inspect_one(path: str, assume_srs: str | None) -> dict[str, Any]:
     gsd_y = abs(gt[5]) if gt else None
 
     wkt = (info.get("coordinateSystem") or {}).get("wkt", "")
-    code = srs_code(wkt)
-    if code is None and assume_srs:
-        code = assume_srs
+    embedded = srs_code(wkt)
+
+    # CRS が画像に無い場合は図郭コード（規約）を根拠に、座標値で妥当性を検証して決める
+    name_zone = zone_from_filename(path)
+    inferred: dict[str, Any] | None = None
+    plausible: list[dict[str, Any]] = []
+    basis = "画像に CRS が埋め込まれている"
+    if not embedded:
+        inferred, plausible, basis = resolve_srs_candidate(info, name_zone)
+
+    code = embedded or assume_srs or (inferred["epsg"] if inferred else None)
 
     bands = info.get("bands", [])
     nodata = [b.get("noDataValue") for b in bands]
@@ -114,18 +277,37 @@ def inspect_one(path: str, assume_srs: str | None) -> dict[str, Any]:
         ring = extent["coordinates"][0]
         lats = [pt[1] for pt in ring]
         lat = (min(lats) + max(lats)) / 2
+    elif inferred:
+        lat = inferred["lat"]
     elif assume_srs and gt:
         lat = _lat_from_assumed_srs(info, assume_srs)
+
+    width = info.get("size", [None, None])[0]
+    height = info.get("size", [None, None])[1]
+    ground_w = width * gsd_x if (width and gsd_x) else None
+    ground_h = height * gsd_y if (height and gsd_y) else None
 
     return {
         "file": os.path.basename(path),
         "driver": info.get("driverShortName"),
-        "width": info.get("size", [None, None])[0],
-        "height": info.get("size", [None, None])[1],
+        "width": width,
+        "height": height,
         "gsd_x": gsd_x,
         "gsd_y": gsd_y,
+        "ground_size_m": [ground_w, ground_h],
+        "map_level": (
+            map_level_from_extent(ground_w, ground_h) if (ground_w and ground_h) else None
+        ),
         "srs": code,
-        "srs_embedded": srs_code(wkt) is not None,
+        "srs_embedded": embedded is not None,
+        "srs_inferred": inferred["epsg"] if inferred else None,
+        "srs_inferred_area": inferred["area_name"] if inferred else None,
+        "srs_basis": basis,
+        "srs_plausible": [c["epsg"] for c in plausible],
+        "zone_from_filename": (
+            f"EPSG:{JGD2011_ZONE_EPSG_BASE + name_zone}" if name_zone else None
+        ),
+        "border": border_fill(ds),
         "band_count": len(bands),
         "color_interp": color_interp,
         "has_alpha": any(c == "Alpha" for c in color_interp),
@@ -160,6 +342,36 @@ def _lat_from_assumed_srs(info: dict[str, Any], assume_srs: str) -> float | None
     return lat
 
 
+def suggest_nodata(files: list[dict[str, Any]]) -> tuple[str, str]:
+    """外周画素の実測から、透過処理に使う NoData 値を提案する。
+
+    戻り値は (提案値, 理由)。透過処理が不要なら提案値は空文字。
+    """
+    # 外周が単色で埋まっているファイルだけを余白候補として見る
+    filled = [f for f in files if f["border"]["border_ratio"] >= 0.5]
+    if not filled:
+        top = max(files, key=lambda f: f["border"]["border_ratio"])
+        return (
+            "",
+            "どのファイルも外周が単色で埋まっていない"
+            f"（最大でも {top['border']['border_ratio'] * 100:.0f}%）ため、"
+            "図郭外の余白は無いと判断（透過処理は不要）",
+        )
+
+    counter = collections.Counter(tuple(f["border"]["border_color"]) for f in filled)
+    color, count = counter.most_common(1)[0]
+    value = " ".join(str(v) for v in color)
+    shares = [f["border"]["whole_ratio"] for f in filled if tuple(f["border"]["border_color"]) == color]
+    avg_share = sum(shares) / len(shares)
+    reason = (
+        f"{count}/{len(files)} ファイルの外周が {value} で埋まっている"
+        f"（該当色は画像全体の平均 {avg_share * 100:.2f}%）"
+    )
+    if avg_share > 0.5:
+        reason += "。ただし画像の大半を占めるため、余白ではなく地物の可能性も要確認"
+    return value, reason
+
+
 def summarize(files: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
     warnings: list[str] = []
 
@@ -182,11 +394,21 @@ def summarize(files: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
     if not srs_list:
         warnings.append("CRS が判定できません — 設定の SRC_SRS で系番号を指定してください")
 
-    no_srs = [f["file"] for f in files if not f["srs_embedded"]]
-    if no_srs:
+    no_srs = [f for f in files if not f["srs_embedded"]]
+    if no_srs and all(f["srs_inferred"] for f in no_srs):
         warnings.append(
             f"CRS が画像に埋め込まれていないファイルが {len(no_srs)} 件あります"
-            "（ワールドファイルのみ／.prj なし）。SRC_SRS の指定が必須です"
+            f"（ワールドファイルのみ／.prj なし）。{no_srs[0]['srs_basis']}により "
+            f"{no_srs[0]['srs_inferred']} と判定しました。異なる場合は SRC_SRS を明示してください"
+        )
+
+    undecided = [f for f in files if not f["srs_embedded"] and not f["srs_inferred"]]
+    if undecided:
+        f0 = undecided[0]
+        warnings.append(
+            f"系番号を自動で確定できないファイルが {len(undecided)} 件あります"
+            f"（理由: {f0['srs_basis']}／座標値から見た候補: "
+            f"{', '.join(f0['srs_plausible']) or 'なし'}）。SRC_SRS を明示してください"
         )
 
     no_world = [f["file"] for f in files if not f["world_file"] and not f["srs_embedded"]]
@@ -196,11 +418,12 @@ def summarize(files: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
             f"{no_world[:5]}"
         )
 
+    nodata_suggestion, nodata_reason = suggest_nodata(files)
     unset_nodata = [f["file"] for f in files if not f["nodata_set"] and not f["has_alpha"]]
-    if unset_nodata:
+    if unset_nodata and nodata_suggestion:
         warnings.append(
             f"NoData 未設定かつアルファバンド無しのファイルが {len(unset_nodata)} 件あります。"
-            "図郭外の色（白／黒）を確認し、設定の NODATA を指定してください"
+            f"外周画素の実測から NODATA=\"{nodata_suggestion}\" を推奨します（{nodata_reason}）"
         )
 
     gsd = min(gsds) if gsds else None
@@ -214,17 +437,31 @@ def summarize(files: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
             "（画像内部とワールドファイル）。GSD が一致しているか確認してください"
         )
 
+    inferred = sorted({f["srs_inferred"] for f in files if f["srs_inferred"]})
+    name_zones = sorted({f["zone_from_filename"] for f in files if f["zone_from_filename"]})
+    map_levels = sorted({f["map_level"] for f in files if f["map_level"]})
+
     summary: dict[str, Any] = {
         "file_count": len(files),
         "gsd": gsd,
         "gsd_values": gsds,
         "band_counts": band_counts,
         "srs": srs_list[0] if len(srs_list) == 1 else None,
+        "srs_inferred": inferred[0] if len(inferred) == 1 else None,
+        "srs_inferred_values": inferred,
+        "srs_basis": sorted({f["srs_basis"] for f in files})[0] if files else "",
+        "srs_plausible": sorted({e for f in files for e in f["srs_plausible"]}),
+        "srs_from_filename": name_zones[0] if len(name_zones) == 1 else None,
+        "map_level": map_levels[0] if len(map_levels) == 1 else None,
+        "map_levels": map_levels,
         "center_lat": lat,
         "recommended_max_zoom": max_zoom,
         "georef_sources": georef_sources,
+        "srs_embedded_all": all(f["srs_embedded"] for f in files) if files else False,
         "has_alpha": all(f["has_alpha"] for f in files) if files else False,
         "nodata_all_set": all(f["nodata_set"] for f in files) if files else False,
+        "nodata_suggestion": nodata_suggestion,
+        "nodata_reason": nodata_reason,
         "total_pixels": sum(
             (f["width"] or 0) * (f["height"] or 0) for f in files
         ),
@@ -247,7 +484,21 @@ def render_report(summary: dict[str, Any], files: list[dict[str, Any]], warnings
     lines.append(f"| ファイル数 | {summary['file_count']} |")
     lines.append(f"| GSD（地上解像度） | {gsd if gsd is None else f'{gsd:.4f} m/px'} |")
     lines.append(f"| GSD・原点の取得元 | {georef} |")
+    lines.append(f"| 図郭サイズ・地図情報レベル | {summary['map_level'] or '／'.join(summary['map_levels']) or '判定不可'} |")
     lines.append(f"| CRS | {summary['srs'] or '不明（要指定）'} |")
+    if not summary["srs_embedded_all"]:
+        lines.append(
+            f"| **自動判定した CRS** | "
+            f"**{summary['srs_inferred'] or '確定できず（要 SRC_SRS 指定）'}** |"
+        )
+        lines.append(f"| 判定根拠 | {summary['srs_basis']} |")
+        lines.append(
+            f"| 座標値から見てありえる系 | {', '.join(summary['srs_plausible']) or 'なし'}"
+            "（平面直角座標系は座標値だけでは一意に決まらない） |"
+        )
+    lines.append(
+        f"| NoData の推奨値 | {summary['nodata_suggestion'] or '不要（余白なし）'} |"
+    )
     lines.append(f"| バンド数 | {summary['band_counts']} |")
     lines.append(
         f"| アルファバンド | {'全ファイルにあり' if summary['has_alpha'] else 'なし／一部のみ'} |"
@@ -280,6 +531,17 @@ def render_report(summary: dict[str, Any], files: list[dict[str, Any]], warnings
             lines.append(f"| {z}{mark} | {res:.4f} | {res / gsd:.2f}x |")
         lines.append("")
 
+    lines += [
+        "### 図郭外の余白（NoData）の判定",
+        "",
+        f"{summary['nodata_reason']}",
+        "",
+        "外周 4px の最多色が外周に占める割合（`border_ratio`）が高いファイルを"
+        "「余白あり」とみなす。余白が無いデータに NoData を設定すると、"
+        "影（純黒）や白飽和部分を誤って透過させてしまう。",
+        "",
+    ]
+
     if warnings:
         lines += ["## 警告", ""]
         lines += [f"- {w}" for w in warnings]
@@ -290,17 +552,21 @@ def render_report(summary: dict[str, Any], files: list[dict[str, Any]], warnings
     lines += [
         "## ファイル別",
         "",
-        "| ファイル | 形式 | サイズ(px) | GSD(m/px) | 取得元 | CRS | バンド | アルファ | NoData | ワールドファイル |",
-        "|---------|------|-----------|-----------|-------|-----|-------|---------|--------|----------------|",
+        "| ファイル | 形式 | サイズ(px) | 地上サイズ(m) | GSD(m/px) | 取得元 | CRS | バンド | アルファ | NoData | 外周単色率 |",
+        "|---------|------|-----------|--------------|-----------|-------|-----|-------|---------|--------|-----------|",
     ]
     short = {"world_file": "TFW/JGW", "internal": "画像内部"}
     for f in files:
         nodata = ", ".join("—" if v is None else f"{v:g}" for v in f["nodata"])
+        gw, gh = f["ground_size_m"]
+        ground = f"{gw:.0f}×{gh:.0f}" if (gw and gh) else "—"
+        b = f["border"]
+        border = f"{b['border_ratio'] * 100:.0f}% {tuple(b['border_color'])}"
         lines.append(
-            f"| {f['file']} | {f['driver']} | {f['width']}×{f['height']} | "
+            f"| {f['file']} | {f['driver']} | {f['width']}×{f['height']} | {ground} | "
             f"{f['gsd_x']:.4f} | {short.get(f['georef_source'], f['georef_source'])} | "
             f"{f['srs'] or '—'} | {f['band_count']} | "
-            f"{'○' if f['has_alpha'] else '—'} | {nodata} | {f['world_file'] or '—'} |"
+            f"{'○' if f['has_alpha'] else '—'} | {nodata} | {border} |"
         )
     lines.append("")
     return "\n".join(lines)

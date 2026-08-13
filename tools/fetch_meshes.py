@@ -25,11 +25,15 @@ WORLD_EXTS = {".tfw", ".jgw", ".pgw", ".wld", ".prj", ".aux.xml"}
 
 
 def target_exists(out_dir: str, mesh_no: str) -> bool:
-    """その図郭の画像が既に展開済みかどうか（大文字小文字・拡張子を問わず判定）。"""
+    """その図郭の画像が既に展開済みかどうか。
+
+    大文字小文字・拡張子は問わない。再撮影分が `<図郭コード>_2.tif` のように
+    接尾辞付きで配布される場合があるため、前方一致で判定する。
+    """
     stem = mesh_no.lower()
     for name in os.listdir(out_dir) if os.path.isdir(out_dir) else []:
         base, ext = os.path.splitext(name)
-        if base.lower() == stem and ext.lower() in IMAGE_EXTS:
+        if base.lower().startswith(stem) and ext.lower() in IMAGE_EXTS:
             return True
     return False
 
@@ -126,7 +130,12 @@ def main() -> int:
             if key == "error":
                 errors.append((mesh_no, status))
             if i % 20 == 0 or i == len(rows):
-                print(f"  {i}/{len(rows)}  done={counts['done']} skip={counts['skip']} error={counts['error']}")
+                # ログにリダイレクトしても進捗が追えるよう毎回フラッシュする
+                print(
+                    f"  {i}/{len(rows)}  done={counts['done']} "
+                    f"skip={counts['skip']} error={counts['error']}",
+                    flush=True,
+                )
 
     if not args.keep_zip:
         try:
