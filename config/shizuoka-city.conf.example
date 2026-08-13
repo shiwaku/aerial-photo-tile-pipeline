@@ -1,0 +1,86 @@
+# 静岡市 オルソ画像（VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ）
+#
+# オープンデータの実例。図郭索引ベクトルタイルから図郭リストを作り、
+# 図郭単位の ZIP を一括ダウンロードしてタイル化する。
+#
+#   出典: 静岡県（VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ）
+#   ライセンス: Open Data Commons Open Database License (ODbL)
+#   カタログ: https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw
+#
+# データ諸元（Step 1 の検査結果）:
+#   GSD 0.20 m/px ／ 2000×1500 px ／ 図郭 400m×300m（地図情報レベル 500）
+#   RGB 3バンド ／ CRS は画像に埋め込まれておらず TFW のみ（SRC_SRS の指定が必須）
+#   図郭コード先頭2桁 "08" は平面直角座標系の系番号 → 第VIII系 = EPSG:6676
+#
+# 使い方:
+#   cp config/shizuoka-city.conf.example config/shizuoka-city.conf
+#   ./scripts/00_build_mesh_list.sh config/shizuoka-city.conf   # 図郭リスト作成
+#   ./scripts/00_fetch_data.sh      config/shizuoka-city.conf   # ダウンロード
+#   ./scripts/run_pipeline.sh       config/shizuoka-city.conf   # タイル生成
+#
+# 注意: 静岡市全域は約 8,800 図郭・展開後 60GB 超になる。まずは下の
+#       MESH_NEAR / MESH_COUNT を有効にして小さい範囲で通すこと。
+
+# --- 識別子 -------------------------------------------------------------------
+
+DATASET_ID="shizuoka-city"
+DATASET_NAME="静岡市 オルソ画像（VIRTUAL SHIZUOKA）"
+
+# --- Step 0: 図郭リスト作成とダウンロード -------------------------------------
+
+# 図郭索引ベクトルタイル（属性 MESH_NO / URL を持つポリゴン）
+MESH_INDEX_URL="https://gic-shizuoka.s3.ap-northeast-1.amazonaws.com/2025/Vectortile/mw/LP/merge/ortho/{z}/{x}/{y}.pbf"
+
+# 対象範囲の境界。静岡市の行政境界（Linked Open Addresses Japan／国土数値情報由来）
+MESH_BOUNDARY="https://uedayou.net/loa/%E9%9D%99%E5%B2%A1%E7%9C%8C%E9%9D%99%E5%B2%A1%E5%B8%82.geojson"
+
+# 索引タイルを取得する ZL。12 で全図郭が取得できることを確認済み
+# （ZL14 の結果を完全に包含する＝低ZLでの間引きは起きていない）
+MESH_INDEX_ZOOM="12"
+
+# サンプルとして小さい範囲だけ扱う場合はこの 2 行を有効にする
+# （静岡市役所付近から近い順に N 図郭）
+#MESH_NEAR="138.3828,34.9756"
+#MESH_COUNT="12"
+
+# 並列ダウンロード数。配布元は S3 だが負荷をかけすぎないよう控えめに
+FETCH_JOBS="4"
+
+# --- 入力 ---------------------------------------------------------------------
+
+SRC_DIR="data/shizuoka-city"
+SRC_EXT="tif"
+
+# JGD2011 平面直角座標系 第VIII系。TFW のみで CRS が無いため必須
+SRC_SRS="EPSG:6676"
+
+# このデータは NoData 未設定・アルファバンド無しだが、**透過処理は不要**。
+# 各図郭は隅まで画像化されており図郭外の余白が存在しない（整備範囲の縁の図郭も
+# 純白・純黒とも 0px であることを確認済み。存在する図郭＝整備済み範囲）。
+#
+# ここに "0 0 0" を指定すると影の純黒（画素の 0.1〜0.2%）を、
+# "255 255 255" を指定すると白飽和部分を誤って透過させてしまうため空にする。
+NODATA=""
+
+# --- ズームレベル -------------------------------------------------------------
+
+MIN_ZOOM="9"
+
+# GSD 0.20 m/px → ZL19（緯度 35° で解像度 0.245 m/px）が自動選定される
+MAX_ZOOM="auto"
+
+# --- 出力形式 -----------------------------------------------------------------
+
+TILE_FORMAT="webp"
+WEBP_QUALITY="85"
+RESAMPLING="average"
+
+# --- 配信メタデータ -----------------------------------------------------------
+
+ATTRIBUTION="<a href=\"https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw\">静岡県（VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ）</a> (ODbL)"
+TILE_URL_TEMPLATE=""
+
+# --- 実行環境 -----------------------------------------------------------------
+
+JOBS=""
+VRT_EXTRA_OPTS=""
