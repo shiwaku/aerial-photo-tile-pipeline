@@ -115,6 +115,20 @@ def read_tile(path: str, z: int, x: int, y: int, mesh_field: str, url_field: str
     return out
 
 
+def build_outline(geoms: list[ogr.Geometry], slack_deg: float = 0.00005) -> ogr.Geometry:
+    """図郭ポリゴンをまとめて整備範囲の外形を作る。
+
+    索引ベクトルタイルの座標は量子化されている（タイル 4096 分割）ため、
+    隣接タイルにまたがる図郭の辺がわずかにずれ、そのまま結合すると
+    タイル境界に細い隙間が残る。わずかに膨らませてから結合し、同じ量だけ
+    縮めることでこの隙間を潰す（既定 slack は約 5m 相当）。
+    """
+    coll = ogr.Geometry(ogr.wkbMultiPolygon)
+    for g in geoms:
+        coll.AddGeometry(g.Buffer(slack_deg))
+    return coll.UnionCascaded().Buffer(-slack_deg)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
@@ -131,6 +145,11 @@ def main() -> int:
     p.add_argument("--jobs", type=int, default=8, help="索引タイル取得の並列数")
     p.add_argument("--out-csv", required=True)
     p.add_argument("--out-geojson", default=None)
+    p.add_argument(
+        "--out-outline",
+        default=None,
+        help="図郭をまとめた整備範囲の外形 GeoJSON（範囲の目視確認用）",
+    )
     p.add_argument(
         "--near",
         default=None,
@@ -173,11 +192,23 @@ def main() -> int:
     found = [(t, path) for t, path in fetched if path]
     print(f"  → {len(found)} 枚に図郭データあり")
 
+    # 同じ図郭が複数タイルに現れる場合はジオメトリを結合する。
+    # ベクトルタイルは各タイル内でジオメトリがクリップされて格納されるため、
+    # タイル境界をまたぐ図郭は 1 枚だけ採用すると境界側が欠けてしまう。
     meshes: dict[str, dict] = {}
+    straddling = 0
     for (tz, tx, ty), path in found:
         for rec in read_tile(path, tz, tx, ty, args.mesh_field, args.url_field):
-            meshes.setdefault(rec["mesh_no"], rec)
-    print(f"図郭（重複除去後）: {len(meshes)} 件")
+            prev = meshes.get(rec["mesh_no"])
+            if prev is None:
+                meshes[rec["mesh_no"]] = rec
+            else:
+                if prev.get("merged") is None:
+                    straddling += 1
+                prev["geom"] = prev["geom"].Union(rec["geom"])
+                prev["merged"] = True
+                prev["url"] = prev["url"] or rec["url"]
+    print(f"図郭（重複除去後）: {len(meshes)} 件（うちタイル境界をまたぐ {straddling} 件を結合）")
 
     if boundary is not None:
         selected = {k: v for k, v in meshes.items() if v["geom"].Intersects(boundary)}
@@ -223,6 +254,26 @@ def main() -> int:
         with open(args.out_geojson, "w", encoding="utf-8") as f:
             json.dump(fc, f, ensure_ascii=False)
         print(f"図郭ポリゴン: {args.out_geojson}")
+
+    if args.out_outline:
+        outline = build_outline([selected[m]["geom"] for m in sorted(selected)])
+        fc = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "name": "整備範囲（図郭の外形）",
+                        "mesh_count": len(selected),
+                    },
+                    "geometry": json.loads(outline.ExportToJson()),
+                }
+            ],
+        }
+        os.makedirs(os.path.dirname(args.out_outline) or ".", exist_ok=True)
+        with open(args.out_outline, "w", encoding="utf-8") as f:
+            json.dump(fc, f, ensure_ascii=False)
+        print(f"整備範囲の外形: {args.out_outline}")
 
     return 0
 

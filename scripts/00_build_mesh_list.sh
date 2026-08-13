@@ -23,6 +23,7 @@ args=(
   --cache-dir "$REPO_ROOT/output/_index_cache"
   --out-csv "$MESH_LIST"
   --out-geojson "$WORK_DIR/mesh_polygons.geojson"
+  --out-outline "$WORK_DIR/coverage_outline.geojson"
 )
 [ -n "$MESH_BOUNDARY" ] && args+=(--boundary "$MESH_BOUNDARY")
 [ -n "$MESH_BBOX" ]     && args+=(--bbox "$MESH_BBOX")
@@ -32,4 +33,5 @@ args=(
 python3 "$REPO_ROOT/tools/build_mesh_index.py" "${args[@]}"
 
 log "図郭リスト: $MESH_LIST"
-log "図郭ポリゴン（範囲確認用）: $WORK_DIR/mesh_polygons.geojson"
+log "図郭ポリゴン（1図郭=1フィーチャー）: $WORK_DIR/mesh_polygons.geojson"
+log "整備範囲の外形（範囲確認用）: $WORK_DIR/coverage_outline.geojson"
