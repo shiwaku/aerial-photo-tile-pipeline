@@ -24,18 +24,35 @@ IMAGE_EXTS = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
 WORLD_EXTS = {".tfw", ".jgw", ".pgw", ".wld", ".prj", ".aux.xml"}
 
 
-def target_exists(out_dir: str, mesh_no: str) -> bool:
+def existing_stems(out_dir: str) -> set[str]:
+    """展開先にある画像ファイルの拡張子を除いた名前（小文字）を集める。
+
+    図郭ごとに listdir すると図郭数×ファイル数の総当たりになるため、
+    最初に一度だけ列挙して集合で持つ。
+    """
+    if not os.path.isdir(out_dir):
+        return set()
+    return {
+        os.path.splitext(n)[0].lower()
+        for n in os.listdir(out_dir)
+        if os.path.splitext(n)[1].lower() in IMAGE_EXTS
+    }
+
+
+def target_exists(stems: set[str], mesh_no: str, url: str) -> bool:
     """その図郭の画像が既に展開済みかどうか。
 
-    大文字小文字・拡張子は問わない。再撮影分が `<図郭コード>_2.tif` のように
-    接尾辞付きで配布される場合があるため、前方一致で判定する。
+    通常は図郭コードがそのままファイル名になる。再撮影分が
+    `<図郭コード>_2.zip` のような別名で配布される場合があるため、
+    URL のファイル名も候補にし、それでも見つからなければ前方一致で探す。
     """
     stem = mesh_no.lower()
-    for name in os.listdir(out_dir) if os.path.isdir(out_dir) else []:
-        base, ext = os.path.splitext(name)
-        if base.lower().startswith(stem) and ext.lower() in IMAGE_EXTS:
-            return True
-    return False
+    if stem in stems:
+        return True
+    url_stem = os.path.splitext(os.path.basename(url))[0].lower()
+    if url_stem and url_stem in stems:
+        return True
+    return any(s.startswith(stem) for s in stems)
 
 
 def download(url: str, dest: str, timeout: int) -> None:
@@ -64,8 +81,16 @@ def extract_flat(zip_path: str, out_dir: str) -> list[str]:
     return written
 
 
-def process(mesh_no: str, url: str, out_dir: str, zip_dir: str, keep_zip: bool, timeout: int) -> tuple[str, str]:
-    if target_exists(out_dir, mesh_no):
+def process(
+    mesh_no: str,
+    url: str,
+    out_dir: str,
+    zip_dir: str,
+    keep_zip: bool,
+    timeout: int,
+    stems: set[str],
+) -> tuple[str, str]:
+    if target_exists(stems, mesh_no, url):
         return mesh_no, "skip"
 
     zip_path = os.path.join(zip_dir, f"{mesh_no}.zip")
@@ -114,13 +139,26 @@ def main() -> int:
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(zip_dir, exist_ok=True)
 
-    print(f"取得対象: {len(rows)} 図郭 / 並列 {args.jobs} / 展開先 {out_dir}")
+    stems = existing_stems(out_dir)
+    print(
+        f"取得対象: {len(rows)} 図郭 / 並列 {args.jobs} / 展開先 {out_dir}"
+        f"{f'（既に {len(stems)} ファイルあり）' if stems else ''}"
+    )
 
     counts = {"done": 0, "skip": 0, "error": 0}
     errors = []
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         futures = {
-            ex.submit(process, r["mesh_no"], r["url"], out_dir, zip_dir, args.keep_zip, args.timeout): r
+            ex.submit(
+                process,
+                r["mesh_no"],
+                r["url"],
+                out_dir,
+                zip_dir,
+                args.keep_zip,
+                args.timeout,
+                stems,
+            ): r
             for r in rows
         }
         for i, fut in enumerate(as_completed(futures), 1):

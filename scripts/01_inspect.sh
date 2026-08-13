@@ -24,10 +24,21 @@ else
   log "CRS: auto（画像に CRS が無ければ図郭コードの系番号を座標値で検証して判定）"
 fi
 
+# レポート本文は数千ファイル規模だと長大になるため、ファイル数が多い場合は
+# 標準出力に流さずレポートの要約だけ見せる
 python3 "$REPO_ROOT/tools/inspect_inputs.py" \
   "${assume_args[@]}" \
+  --jobs "$JOBS" \
   --out-json "$INSPECT_DIR/inputs.json" \
   --out-report "$INSPECT_DIR/report.md" \
-  "${sources[@]}"
+  "${sources[@]}" \
+  > "$INSPECT_DIR/report.stdout.txt"
+
+if [ "${#sources[@]}" -le 50 ]; then
+  cat "$INSPECT_DIR/report.stdout.txt"
+else
+  sed -n '/^## サマリ/,/^$/p;/^## 警告/,/^## ファイル別/p' "$INSPECT_DIR/report.md" \
+    | grep -v '^## ファイル別'
+fi
 
 log "レポート: $INSPECT_DIR/report.md"

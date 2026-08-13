@@ -21,6 +21,7 @@ import json
 import math
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 try:
@@ -158,7 +159,7 @@ def map_level_from_extent(width_m: float, height_m: float) -> str | None:
     return None
 
 
-def border_fill(ds: gdal.Dataset, strip: int = 4) -> dict[str, Any]:
+def border_fill(ds: gdal.Dataset, target: int = 512, ring: int = 2) -> dict[str, Any]:
     """外周の画素を実測し、図郭外の余白として塗られている色を推定する。
 
     余白があれば外周にその色が現れる。外周に占める最多色の割合と、
@@ -166,51 +167,67 @@ def border_fill(ds: gdal.Dataset, strip: int = 4) -> dict[str, Any]:
 
     純白・純黒を別に測るのは、航空写真では実際の地物が全バンド 255（または 0）に
     飽和することがほとんど無く、余白の強い証拠になるため。
+
+    読み出しは**間引きした全体読み 1 回だけ**にしている。オルソ画像の GeoTIFF は
+    1 行 1 ブロック（Block=幅×1）で格納されていることが多く、幅数 px の左右列を
+    読むだけでも全ストリップを走査してファイル全体を読むことになる。
+    間引き読みは最近傍抽出なので画素値は変化せず、純白・純黒の判定に影響しない。
     """
     w, h = ds.RasterXSize, ds.RasterYSize
     bands = min(ds.RasterCount, 3)
-    s = min(strip, h // 2, w // 2) or 1
 
-    def read(xoff, yoff, xsize, ysize):
-        a = ds.ReadAsArray(xoff, yoff, xsize, ysize, band_list=list(range(1, bands + 1)))
-        return np.asarray(a).reshape(bands, -1)
-
-    edges = np.concatenate(
-        [read(0, 0, w, s), read(0, h - s, w, s), read(0, 0, s, h), read(w - s, 0, s, h)],
-        axis=1,
-    )
-    colors = [tuple(int(v) for v in edges[:, i]) for i in range(edges.shape[1])]
-    counter = collections.Counter(colors)
-    top_color, top_count = counter.most_common(1)[0]
-    n = len(colors)
-
-    white = tuple([255] * bands)
-    black = tuple([0] * bands)
-
-    # 画像全体での割合（間引いて概算）
-    step = max(1, min(w, h) // 512)
-    full = np.asarray(
+    step = max(1, min(w, h) // target)
+    a = np.asarray(
         ds.ReadAsArray(
             buf_xsize=max(1, w // step),
             buf_ysize=max(1, h // step),
             band_list=list(range(1, bands + 1)),
         )
-    ).reshape(bands, -1)
+    )
+    if a.ndim == 2:  # 単バンド
+        a = a[np.newaxis, :, :]
 
-    def whole_share(color: tuple[int, ...]) -> float:
-        m = np.ones(full.shape[1], dtype=bool)
-        for b in range(bands):
-            m &= full[b] == color[b]
-        return float(m.mean())
+    key = np.zeros(a.shape[1:], dtype=np.int64)
+    for b in range(bands):
+        key = (key << 8) | a[b].astype(np.int64)
+
+    def decode(k: int) -> list[int]:
+        return [int((k >> (8 * (bands - 1 - b))) & 0xFF) for b in range(bands)]
+
+    r = max(1, min(ring, key.shape[0] // 2, key.shape[1] // 2))
+    edge_keys = np.concatenate(
+        [
+            key[:r].ravel(),
+            key[-r:].ravel(),
+            key[:, :r].ravel(),
+            key[:, -r:].ravel(),
+        ]
+    )
+    values, counts = np.unique(edge_keys, return_counts=True)
+    top_i = int(np.argmax(counts))
+    top_key, top_count = int(values[top_i]), int(counts[top_i])
+    n = edge_keys.size
+
+    white_key = int((1 << (8 * bands)) - 1)
+    black_key = 0
+
+    def edge_share(k: int) -> float:
+        i = int(np.searchsorted(values, k))
+        return float(counts[i]) / n if i < values.size and values[i] == k else 0.0
+
+    whole = key.ravel()
+
+    def whole_share(k: int) -> float:
+        return float((whole == k).mean())
 
     return {
-        "border_color": list(top_color),
+        "border_color": decode(top_key),
         "border_ratio": round(top_count / n, 4),
-        "border_white_ratio": round(counter.get(white, 0) / n, 4),
-        "border_black_ratio": round(counter.get(black, 0) / n, 4),
-        "whole_ratio": round(whole_share(top_color), 6),
-        "whole_white_ratio": round(whole_share(white), 6),
-        "whole_black_ratio": round(whole_share(black), 6),
+        "border_white_ratio": round(edge_share(white_key), 4),
+        "border_black_ratio": round(edge_share(black_key), 4),
+        "whole_ratio": round(whole_share(top_key), 6),
+        "whole_white_ratio": round(whole_share(white_key), 6),
+        "whole_black_ratio": round(whole_share(black_key), 6),
     }
 
 
@@ -619,17 +636,25 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("inputs", nargs="+", help="検査する画像ファイル")
     p.add_argument("--assume-srs", default=None, help="CRS が無い場合に仮定する CRS（例: EPSG:6673）")
+    p.add_argument("--jobs", type=int, default=1, help="並列数（ファイル数が多い場合に指定）")
     p.add_argument("--out-json", required=True)
     p.add_argument("--out-report", required=True)
     args = p.parse_args()
 
-    files = []
-    for path in args.inputs:
-        try:
-            files.append(inspect_one(path, args.assume_srs))
-        except RuntimeError as e:
-            print(f"ERROR: {path} を読み込めません: {e}", file=sys.stderr)
-            return 1
+    # 1ファイルあたり画素の実測を伴うため、数千ファイル規模では並列化する。
+    # GDAL のデータセットはファイルごとに開くので共有していない。
+    def run(path: str) -> dict[str, Any]:
+        return inspect_one(path, args.assume_srs)
+
+    try:
+        if args.jobs > 1 and len(args.inputs) > 1:
+            with ThreadPoolExecutor(max_workers=args.jobs) as ex:
+                files = list(ex.map(run, args.inputs))
+        else:
+            files = [run(path) for path in args.inputs]
+    except RuntimeError as e:
+        print(f"ERROR: 入力を読み込めません: {e}", file=sys.stderr)
+        return 1
 
     if not files:
         print("ERROR: 入力ファイルがありません", file=sys.stderr)
