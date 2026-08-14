@@ -1,419 +1,198 @@
 # aerial-photo-tile-pipeline
 
-航空写真（正射画像）から XYZ ラスタータイルを生成するパイプライン。
+航空写真（正射画像）から XYZ ラスタータイル／PMTiles を生成します。図郭分割された GeoTIFF・JPEG を入力に、**検査 → 前処理 → モザイク結合 → タイル生成 → TileJSON** までを設定ファイル 1 枚で通します。
 
-GeoTIFF / JPEG + ワールドファイルで受け取った図郭分割済みのオルソ画像を入力に、
-**検査 → 前処理 → モザイク結合 → タイル生成 → TileJSON** までを設定ファイル 1 枚で通す。
+出力したタイルは、同梱の MapLibre ビューワのほか、QGIS や任意の Web 地図の背景地図として利用できます。
 
-- 入力の諸元（GSD・CRS・バンド構成・NoData）を機械的に検査し、**最大ズームレベルを自動決定**する
-- 図郭外の余白（白地／黒地）をアルファバンドに変換して透過させる
-- 出力は **WebP（既定）** または PNG
-- 出力形態は **XYZ ディレクトリ（既定）** または **PMTiles（単一ファイル）**
-- 生成物をローカルの MapLibre ビューワで即確認できる
+- 入力の諸元（GSD・CRS・バンド構成・余白色）を機械的に検査し、**最大ズームレベルを自動決定**する
+- 図郭外の余白と整備範囲の穴を透過させる（不透明な黒が残らないことを生成後に自動検査する）
+- 出力は **WebP（既定）** または PNG、形態は **XYZ ディレクトリ（既定）** または **PMTiles（単一ファイル）**
+- 図郭単位で配布されているオープンデータなら、対象範囲の一括ダウンロードから通せる
 
-## 必要なもの
+## クイックスタート
 
-| ツール | 用途 | 確認 |
-|--------|------|------|
-| GDAL 3.6+（`gdal2tiles` が `--tiledriver=WEBP` 対応） | 全ステップ | `gdal2tiles --help \| grep webp` |
-| Python 3.9+ ＋ GDAL バインディング（`osgeo`） | 検査・TileJSON 生成 | `python3 -c "from osgeo import gdal"` |
-| bash 4+ | スクリプト実行 | — |
-
-Python 側の追加ライブラリは不要（標準ライブラリ ＋ `osgeo` のみ）。
-
-ビューワを使う場合は Node.js 18+ が必要（`viewer/` は Vite プロジェクト）。
-
-`TILE_OUTPUT="pmtiles"` を使う場合の追加:
-
-| ツール | 用途 | 必要な経路 | 確認 |
-|--------|------|-----------|------|
-| [go-pmtiles](https://github.com/protomaps/go-pmtiles) | MBTiles → PMTiles | 両方 | `pmtiles convert --help` |
-| [mbutil](https://github.com/mapbox/mbutil) | XYZ → MBTiles | `PMTILES_VIA="gdal2tiles"`（既定） | `mb-util --help` |
-| [rio-mbtiles](https://github.com/mapbox/rio-mbtiles) | MBTiles 生成 | `PMTILES_VIA="rio-mbtiles"` | `rio mbtiles --help` |
+必要なのは **GDAL 3.6 以上**と **Python 3.9 以上（GDAL バインディング付き）** だけです。Python の追加ライブラリは要りません。
 
 ```bash
-pip install mbutil
-pip install rio-mbtiles && pip install "shapely>=2.0"   # ← rio 経路を使う場合のみ
+gdal2tiles --help | grep webp             # WEBP 対応の確認
+python3 -c "from osgeo import gdal"       # バインディングの確認
 ```
 
-> **注意**: rio-mbtiles 1.6.0 は `shapely~=1.7.0` をハード pin しているため、
-> 素直に入れると shapely 2.x が 1.7.1 へダウングレードされ、geopandas などが壊れる。
-> 実行時は shapely 2.x でも問題なく動く（pin は宣言のみ）ので、インストール後に
-> shapely を戻すこと。`pip` は依存の警告を出すが動作に影響はない。
-> 既定の `gdal2tiles` 経路なら rio-mbtiles は不要で、この問題も起きない。
+**1. データを用意する**
+
+手元にデータが無ければ、[VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ](https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw)のオルソ画像（GSD 0.20 m/px・ODbL）が試用に使えます。同梱の設定例がこのデータの図郭索引を指しているので、ダウンロードから自動で通ります。
+
+```bash
+git clone https://github.com/shiwaku/aerial-photo-tile-pipeline.git
+cd aerial-photo-tile-pipeline
+
+cp config/shizuoka-city.conf.example config/shizuoka-city.conf
+```
+
+コピーした `config/shizuoka-city.conf` の次の 2 行のコメント（先頭の `#`）を外してください。静岡市役所付近の 12 図郭（約 100 MB）だけに絞る指定です。
+
+```bash
+MESH_NEAR="138.3828,34.9756"
+MESH_COUNT="12"
+```
+
+> **外さずに実行すると静岡市全域（約 8,800 図郭・展開後 74 GB）を取りにいきます。** 全域を通す場合は[性能実測](docs/benchmarks.md)で所要時間と容量を確認してから実行してください。
+
+**2. タイルを作る**
+
+```bash
+./scripts/00_build_mesh_list.sh config/shizuoka-city.conf   # 図郭リスト作成（約30秒）
+./scripts/00_fetch_data.sh      config/shizuoka-city.conf   # ダウンロード
+./scripts/run_pipeline.sh       config/shizuoka-city.conf   # 検査→タイル生成（約10秒）
+
+ls output/shizuoka-city/tiles/            # ZL9〜19 のタイルが出る
+cat output/shizuoka-city/inspect/report.md   # CRS・GSD・最大ZL の判定根拠
+```
+
+手元のデータを使う場合は Step 0 を飛ばし、画像とワールドファイルを `data/<任意の名前>/` に平置きしてから `config/sample.conf.example` をコピーして `SRC_DIR` を指定します（[入力データの置き方](data/README.md)）。設定値は `auto` のままで構いませんが、**まず `./scripts/01_inspect.sh` だけを実行して判定結果を確認してから**通しで流してください。
+
+**3. 地図で見る**
+
+ビューワは Vite プロジェクトなので、初回だけビルドが要ります（Node.js 18 以上）。
+
+```bash
+cd viewer && npm install && npm run build && cd ..
+./scripts/serve.sh config/shizuoka-city.conf      # http://localhost:8080/
+```
+
+背景地図の切替・不透明度スライダー・整備範囲へのフィットが使えます（[ビューワ](docs/viewer.md)）。
 
 ## 使い方
 
-```bash
-# 1. データを置く（data/README.md 参照）
-#    data/sample/*.tif + *.tfw
-
-# 2. 設定を作る
-cp config/sample.conf.example config/sample.conf
-$EDITOR config/sample.conf          # SRC_DIR / SRC_SRS / NODATA を埋める
-
-# 3. まず検査だけ実行して諸元を確認する
-./scripts/01_inspect.sh config/sample.conf
-
-# 4. 通しで実行
-./scripts/run_pipeline.sh config/sample.conf
-
-# 5. ビューワをビルドする（初回のみ）
-cd viewer && npm install && npm run build && cd ..
-
-# 6. ローカルで確認
-./scripts/serve.sh config/sample.conf     # http://localhost:8080/
-```
-
-途中からやり直す場合:
+各ステップは独立して実行でき、第 1 引数に設定ファイルを取ります。
 
 ```bash
-./scripts/run_pipeline.sh config/sample.conf --from 4      # タイル生成以降だけ
+./scripts/run_pipeline.sh config/sample.conf                 # Step 1〜5 を通しで
+./scripts/run_pipeline.sh config/sample.conf --from 4        # タイル生成以降だけやり直す
 ./scripts/run_pipeline.sh config/sample.conf --from 2 --to 3
+./scripts/01_inspect.sh   config/sample.conf                 # 単体で実行する場合
 ```
 
-### 図郭単位で配布されているオープンデータを取得する場合（Step 0）
+| スクリプト | 処理 |
+|---|---|
+| `00_build_mesh_list.sh` | （任意）図郭索引ベクトルタイルから対象範囲の図郭リストを作る |
+| `00_fetch_data.sh` | （任意）図郭 ZIP を一括ダウンロードして `SRC_DIR` に平置き展開する |
+| `01_inspect.sh` | 入力を検査し、CRS・GSD・余白色・最大 ZL を判定する |
+| `02_prepare.sh` | GeoTIFF への統一・CRS 付与・図郭外の透過（不要なら自動スキップ） |
+| `03_build_vrt.sh` | モザイク結合（`gdalbuildvrt -addalpha`） |
+| `04_make_tiles.sh` | タイル生成（`gdal2tiles --xyz`）と生成後の抜き取り検査 |
+| `05_make_tilejson.sh` | TileJSON 生成 |
+| `serve.sh` | ローカルプレビュー（`config` と `[port]` を取る。既定 8080） |
 
-オルソ画像が「地図上で図郭を選択してダウンロード」形式で公開されている場合、
-その索引はダウンロード URL を属性に持つベクトルタイルとして配信されていることが多い。
-Step 0 はその索引から対象範囲の図郭リストを作り、ZIP を一括ダウンロードして平置き展開する。
+中断しても再実行に耐えます。Step 0-b は展開済みの図郭を、Step 2 は処理済みのファイルをスキップします。Step 4 は `RESUME="true"` で不足タイルのみ生成します。
+
+### 主な設定
+
+案件ごとに違う値は `auto` と書けば実データから判定します。判定根拠は必ず `output/<id>/inspect/report.md` に残るので、鵜呑みにせず確認してから流してください。
+
+| 設定 | デフォルト | 説明 |
+|---|---|---|
+| `DATASET_ID` | （必須） | 出力先ディレクトリ名（`output/<DATASET_ID>/`） |
+| `SRC_DIR` | （必須） | 入力画像を平置きしたディレクトリ |
+| `SRC_EXT` | `auto` | 入力画像の拡張子。`auto` で tif/jpg 等の混在も受け付ける |
+| `SRC_SRS` | `auto` | 入力の CRS。`auto` は画像の CRS →図郭コードの系番号の順で判定 |
+| `NODATA` | `auto` | 図郭外の余白色。`auto` は外周画素の実測で判定、空で透過処理なし |
+| `MIN_ZOOM` / `MAX_ZOOM` | `9` / `auto` | `auto` は GSD とデータ中心緯度から算出 |
+| `TILE_OUTPUT` | `dir` | `dir`（XYZ ディレクトリ）または `pmtiles`（単一ファイル） |
+| `TILE_FORMAT` | `webp` | `webp` または `png` |
+| `WEBP_QUALITY` | `85` | 非可逆の品質（1-100）。`lossless` で可逆 |
+| `ATTRIBUTION` | （空） | TileJSON の出典表記。オープンデータのライセンス表記を入れる |
+| `JOBS` | `nproc` | 並列数。16 スレッド機での実測では 8 が妥当 |
+
+全項目と `auto` の判定ロジックは[設定リファレンス](docs/config.md)を参照してください。
+
+### 出力ファイル
+
+| パス | 内容 |
+|---|---|
+| `output/<id>/inspect/report.md` | 検査レポート（CRS・GSD・最大 ZL の判定根拠、警告） |
+| `output/<id>/inspect/inputs.json` | ファイル別の検査結果（後段の `auto` 解決の唯一の根拠） |
+| `output/<id>/merge.vrt` | モザイク VRT |
+| `output/<id>/tiles/{z}/{x}/{y}.webp` | タイル（`TILE_OUTPUT="dir"`） |
+| `output/<id>/tiles/tiles.json` | TileJSON（同上） |
+| `output/<id>/<id>.pmtiles` | PMTiles アーカイブ（`TILE_OUTPUT="pmtiles"`） |
+| `output/<id>/tiles.json` | TileJSON（同上。アーカイブと同じ階層） |
+| `output/<id>/tiles_meta.json` | 出力形態・ZL 範囲・枚数・容量（Step 5 はこれを見て分岐する） |
+| `output/<id>/mesh_list.csv` | 図郭リスト（Step 0-a） |
+| `output/<id>/mesh_polygons.geojson` | 図郭ポリゴンと整備範囲の外形（範囲確認用） |
+
+## PMTiles で出力する
+
+`TILE_OUTPUT="pmtiles"` にすると、タイルを単一ファイルにまとめます。本番実測では 366,827 ファイルが 1 ファイル（約 7.5 GB）になりました。追加で [go-pmtiles](https://github.com/protomaps/go-pmtiles) と [mbutil](https://github.com/mapbox/mbutil) が必要です。
 
 ```bash
-cp config/shizuoka-city.conf.example config/shizuoka-city.conf
+pip install mbutil        # pmtiles convert の入力は MBTiles のみなので経由する
 
-./scripts/00_build_mesh_list.sh config/shizuoka-city.conf   # 図郭リスト作成
-./scripts/00_fetch_data.sh      config/shizuoka-city.conf   # 一括ダウンロード
-./scripts/run_pipeline.sh       config/shizuoka-city.conf   # タイル生成
-```
-
-`00_build_mesh_list.sh` は行政境界 GeoJSON（`MESH_BOUNDARY`）または bbox（`MESH_BBOX`）と
-交差する図郭だけを選び、`output/<id>/mesh_list.csv`（`mesh_no,url`）と
-範囲確認用の `mesh_polygons.geojson` を出す。
-
-大きい自治体は全域で数千〜1万図郭・数十 GB になるため、まず
-`MESH_NEAR="lon,lat"` ＋ `MESH_COUNT=12` で小さい範囲を通してから全域に広げる
-（`00_fetch_data.sh --limit N` でも絞れる）。
-
-> **ダウンロード URL は図郭コードから組み立てず、必ず索引の URL 属性を使う。**
-> 再撮影分などで `<図郭コード>_2.zip` のように規則から外れるファイルが混ざる
-> （実例のデータセットでは 8,840 件中 68 件）。
-
-## パイプラインの構成
-
-```
-（Step 0）図郭索引ベクトルタイル → mesh_list.csv → ZIP 一括DL → data/<id>/ に平置き
-  │
-data/<id>/*.tif + *.tfw
-  │
-  ├─ Step 1  01_inspect.sh      検査（GSD・CRS・バンド・NoData）→ 推奨最大ZLを算出
-  │                             出力: output/<id>/inspect/{inputs.json,report.md}
-  │
-  ├─ Step 2  02_prepare.sh      前処理（GeoTIFF 統一・CRS 付与・図郭外の透過）
-  │                             gdalwarp -srcnodata -dstalpha / gdal_translate
-  │                             出力: output/<id>/prepared/*.tif
-  │                             ※ 不要な場合は自動スキップして元データを直接使う
-  │
-  ├─ Step 3  03_build_vrt.sh    モザイク結合（gdalbuildvrt）
-  │                             出力: output/<id>/merge.vrt
-  │
-  ├─ Step 4  04_make_tiles.sh   タイル生成（gdal2tiles --xyz）
-  │                             出力: output/<id>/tiles/{z}/{x}/{y}.webp
-  │
-  └─ Step 5  05_make_tilejson.sh  TileJSON 生成
-                                出力: output/<id>/tiles/tiles.json
-```
-
-各ステップは独立して実行でき、`config/<name>.conf` を第 1 引数に取る。
-
-### 動作実績（オープンデータでの実行例）
-
-同梱の設定例は 2 つある。**同じ静岡市でも別のデータセットで諸元が異なり**、
-どちらも設定を書き換えずに（`auto` 任せで）通ることを確認している。
-
-| | `shizuoka-city`（中・西部） | `shizuoka-north`（北部・南アルプス） |
-|---|---|---|
-| GSD | 0.20 m/px | 0.25 m/px |
-| 図郭 | 400×300m（2000×1500px） | 1000×750m（4000×3000px） |
-| CRS | 埋め込みなし（TFW のみ） | 埋め込みあり（WKT が非標準なので EPSG で明示） |
-| 図郭外の余白 | なし → 透過処理なし | 白 → `255 255 255` を透過 |
-| 自動決定した最大ZL | ZL19 | ZL19 |
-| ライセンス | ODbL | CC BY（＋関東森林管理局の承認番号） |
-| 静岡市域の図郭数 | 8,844 | 655 |
-
-12 図郭でのサンプル実行:
-
-| 項目 | 中・西部 | 北部 |
-|------|---------|------|
-| 元データ | 103 MB（1.44 km²） | 412 MB（9 km²） |
-| Step 1〜5 | 8 秒 | 43 秒 |
-| 生成タイル | ZL9–19 で 556 枚 / 9.3 MB | ZL9–19 で 2,482 枚 / 48 MB |
-
-図郭リスト作成は市全域（8,844 図郭）で 27 秒（索引タイル ZL12 を 77 枚取得）。
-市全域を通した場合の目安は、元データ 約 75 GB・タイル 約 36 万枚 / 約 8 GB。
-
-なお 2 つを合わせると静岡市域の 100%（1,405 / 1,412 km²）をカバーする
-（中・西部だけでは 72%。北部の山間部が中・西部データセットに含まれない）。
-両者は 43 km² 重複し、ライセンス表記も異なるため、1 つのタイルセットにまとめる場合は
-重複域の優先順位と両方の出典表記が必要。
-
-## 案件差の自動吸収
-
-案件ごとに違う値は、設定に `auto` と書けば実データから判定する。
-判定根拠は必ず `output/<id>/inspect/report.md` に残るので、鵜呑みにせず確認してから流す。
-
-| 設定 | `auto` の判定内容 |
-|------|-----------------|
-| `SRC_EXT="auto"` | `tif` / `tiff` / `jpg` / `jpeg` / `png` を拾う。1 データセット内での混在も可 |
-| `SRC_SRS="auto"` | 画像に CRS があればそれを使う。無ければ図郭コード先頭 2 桁の系番号を、座標値がその系の適用範囲に収まるかで検証して確定する |
-| `NODATA="auto"` | 外周 4px を実測して余白色を判定（下記）。余白が無ければ透過処理をしない |
-| `MAX_ZOOM="auto"` | GSD（ワールドファイル由来でも可）とデータ中心緯度から算出 |
-
-`NODATA="auto"` の判定は 2 段階:
-
-1. 外周に**純白（255,255,255）または純黒（0,0,0）が 2% 以上**あればそれを余白とする。
-   航空写真の地物は全バンドが飽和することがほとんど無いため、少量でも余白の証拠になる
-   （余白なしのデータセットでは 12 ファイルすべてで純白 0px だった）。
-   純白と純黒が混在した場合は自動判定せず、手動指定を促す
-2. 純白・純黒以外の色の場合は、**外周の 50% 以上が単色**で埋まっていることを要求する
-   （地物の色を誤って余白と判定しないため）
-
-このほか、明示設定なしで吸収するもの:
-
-- **GSD の取得元**: 画像内部のジオリファレンスとワールドファイル（`.tfw` / `.jgw`）の
-  どちらから来た値かを判定してレポートに出す。混在していれば警告する
-- **バンド数の混在**: 3 バンドと 4 バンドが混ざると `gdalbuildvrt` が失敗するため、
-  混在を検出したら Step 2 で全ファイルにアルファバンドを付けて揃える
-- **GSD の混在**: `gdalbuildvrt -resolution highest` で最も細かい解像度に合わせる
-  （既定の平均だと細かい方の情報が落ちる）
-- **図郭サイズ**: 地上サイズから地図情報レベル（1/500〜1/5,000）を判定してレポートに出す
-- **中断からの再開**: Step 0-b は展開済み図郭、Step 2 は処理済みファイルをスキップする。
-  Step 4 は `RESUME="true"` で `gdal2tiles -e`（不足タイルのみ生成）に切り替わる
-
-### 系番号は座標値だけでは決まらない
-
-平面直角座標系は 19 系すべてが「自系の適用範囲内に原点を持つ」ため、ある座標値
-(x, y) は多くの系で自系の範囲内に落ちる。実際に GSD 0.20 m/px のサンプルでは
-座標値だけで 13 系が候補として残った。
-
-そのため `SRC_SRS="auto"` は**図郭コード先頭 2 桁**（国土基本図の図郭コードで
-系番号を表す規約）を第一の根拠にし、座標値はその妥当性検証にのみ使う。
-図郭コードでない命名規則のデータでは自動判定できないため、`SRC_SRS` を明示すること。
-
-## 設計上の判断
-
-### 最大ズームレベルの決定
-
-タイル解像度が元画像の GSD に**最も近い** ZL を採用する。
-これより低い ZL では 1 ピクセルが元画像の複数ピクセルを平均化することになり元データの
-解像度を活かしきれず、高い ZL では補間で水増しするだけで情報は増えない。
-
-ZL *z* のタイル解像度（256px タイル）は緯度 φ において
-
-```
-res(z) = 156543.033928 × cos(φ) / 2^z   [m/px]
-```
-
-なので、採用 ZL は `round(log2(res(0) / GSD))` で求まる。
-`tools/inspect_inputs.py` はデータ中心の緯度を使ってこれを計算し、
-`report.md` に前後 ZL の解像度比とあわせて出す。
-
-| GSD | 推奨 ZL（北緯 35° 付近） | その ZL の解像度 |
-|-----|------------------------|----------------|
-| 0.10 m/px | ZL20 | 0.122 m/px |
-| 0.25 m/px | ZL19 | 0.245 m/px |
-| 0.50 m/px | ZL18 | 0.489 m/px |
-| 1.00 m/px | ZL17 | 0.978 m/px |
-
-### 図郭外の透過
-
-図郭単位で分割されたオルソ画像は、撮影範囲外が白または黒で塗られていることがあり、
-そのままタイル化すると地図上に四角い枠が見える。`NODATA` に余白色を指定すると
-Step 2 で `gdalwarp -srcnodata <色> -dstalpha` によりアルファバンドへ変換する。
-
-余白色はファイル単位で異なる場合があり、また NoData が未設定のファイルが混在すると
-そのファイルだけ透過漏れになる。Step 1 の検査でファイル別の NoData 設定と
-バンド数（3 バンドと 4 バンドの混在は `gdalbuildvrt` が失敗する）を突き合わせて警告する。
-
-### 出力形式
-
-航空写真は写真系コンテンツのため非可逆圧縮がよく効き、WebP 非可逆で PNG に対して
-大幅にサイズを削減できる。既定は `TILE_FORMAT=webp` / `WEBP_QUALITY=85`。
-
-| 設定 | 用途 |
-|------|------|
-| `WEBP_QUALITY=85` | 標準。背景地図としての視認性は十分 |
-| `WEBP_QUALITY=95` | 拡大時の圧縮ノイズを抑えたい場合 |
-| `WEBP_QUALITY=lossless` | 可逆が要件の場合（`--webp-lossless`） |
-| `TILE_FORMAT=png` | 画素値をパレットで厳密に保持する必要がある場合 |
-
-実データでの削減率は GSD や地物の density に依存するため、案件ごとに
-`TILE_FORMAT` / `WEBP_QUALITY` を変えて Step 4 を回し、
-`output/<id>/tiles_meta.json` の `total_bytes` を比較して決めるとよい。
-
-### 出力形態（XYZ ディレクトリ / PMTiles）
-
-`TILE_OUTPUT` で切り替える。タイルの中身（WebP / ZL 範囲 / リサンプリング）は
-どちらも同じ設定が効く。
-
-| | `TILE_OUTPUT="dir"`（既定） | `TILE_OUTPUT="pmtiles"` |
-|---|---|---|
-| 出力 | `output/<id>/tiles/{z}/{x}/{y}.webp` | `output/<id>/<id>.pmtiles` |
-| 配信 | 静的ホスティングにそのまま置ける | HTTP Range 対応のホスティングが必要 |
-| 途中再開 | `RESUME="true"` で不足分のみ生成 | 非対応（毎回作り直し） |
-
-PMTiles を選ぶ主な理由は**小さいファイルが大量にできないこと**。
-本番実測では 366,827 ファイル → 1 ファイル（約 7.5 GB）になった。
-配布・バックアップ・同期のほか、削除にも効く。36 万ファイルの `rm -rf` は
-drvfs 上で 10 分かかり、`du -sh` は事実上返ってこない。
-
-#### PMTiles の作り方（`PMTILES_VIA`）
-
-`pmtiles convert` の入力は MBTiles のみなので、どちらの経路も MBTiles を経由する。
-
-| | `"gdal2tiles"`（既定） | `"rio-mbtiles"` |
-|---|---|---|
-| 経路 | gdal2tiles → mb-util → convert | rio mbtiles → convert |
-| 400図郭の実測 | **422 秒** | 1,133 秒 |
-| 中間生成物 | XYZ ディレクトリ（大量の小ファイル） | 無し |
-| 追加の依存 | `mb-util` | `rio-mbtiles` |
-
-**既定が gdal2tiles なのは 2.7 倍速いから。** gdal2tiles は最大ZLを作ってから
-ピラミッドを縮小で積むが、rio-mbtiles は ZL ごとに元データから warp し直すため
-低ZLが重い。rio-mbtiles の公式ドキュメントも
-"suited for small to medium (~1 GB) sized sources" と明記している。
-成果物は両経路で同一（400図郭でどちらも 325 MB）。
-
-```bash
-# 設定
+# 設定に 1 行足すだけで、Step 1〜5 の流し方は同じ
 TILE_OUTPUT="pmtiles"
-PMTILES_VIA="gdal2tiles"      # または rio-mbtiles
-PMTILES_KEEP_MBTILES="true"   # 中間 MBTiles を残すか
-PMTILES_KEEP_TILES="true"     # 中間の XYZ ディレクトリを残すか
 
-# 実行（Step 1〜5 は共通）
 ./scripts/run_pipeline.sh config/sample.conf
-./scripts/serve.sh config/sample.conf      # Range 対応サーバで起動する
+./scripts/serve.sh        config/sample.conf   # Range 対応サーバで起動する
+pmtiles show output/sample/sample.pmtiles      # center の経度が正しいことを確認
 ```
 
-生成物の確認:
+作り方は 2 経路あり、既定の `gdal2tiles` は実測で 2.7 倍速いほうです。経路の違い・`center` が壊れる既知の問題・rio-mbtiles の注意点は [PMTiles 出力](docs/pmtiles.md)を参照してください。
 
-```bash
-pmtiles show output/sample/sample.pmtiles
-#   tile type: webp
-#   min zoom: 9 / max zoom: 19
-#   center: (long: 138.383908, lat: 34.975052)   ← 経度が正しいこと
-```
+## ドキュメント
 
-> **`center` の経度は必ず確認すること。** go-pmtiles は metadata に `center` が
-> 無いと `bounds` から計算するが、経度を E7 の int32 で先に加算するため、
-> 経度の和が 214.7483647 度を超えると桁があふれる。東経 138 度なら和は約 277 度で
-> 確実に該当し、center が -76 度付近（北米東岸沖）に化ける。
-> このパイプラインは `tools/mbtiles_meta.py` で `center` を明示して回避している。
-
-### 整備範囲の「穴」と生成後の検査
-
-図郭は外接矩形をぴったり埋めるとは限らない。市域のように輪郭が不定形だと
-**外接矩形の内側に元データが無い穴ができる**。静岡市では矩形の 52.6% が穴だった。
-
-このとき VRT が 3 バンドだと、穴の画素値は `(0,0,0)` になり「黒い写真」と
-区別が付かない。gdal2tiles が透過にするのは VRT の範囲外だけなので、
-**穴は不透明な黒として出力される**。QGIS で開くと範囲外が黒く塗り潰される。
-
-対策として Step 3 は `gdalbuildvrt -addalpha` を**常に**付ける。元データが無い
-画素のアルファが 0 になり穴が透過する。矩形を隙間なく埋めるデータでは
-全画素 255 になるだけで害はない。
-
-Step 4 は生成後に `tools/check_tiles.py` で 200 枚を抜き取り検査する。
-
-```
-[20:49:07] 検査: 200 枚を抜き取り / 不透明な黒 0.00% / 透過 5.74%
-```
-
-「不透明な黒」（RGB=0 かつ アルファ=255）が 2% を超えると警告が出る。
-警告が出たら VRT にアルファバンドがあるか確認する。
-
-```bash
-gdalinfo output/<id>/merge.vrt | grep '^Band '
-```
-
-> この問題は本番 8,844 図郭を 4 時間かけて作ってから発覚した。事前検証に使った
-> 部分集合を「重心から近い順に N 枚」で選んでいたため、**定義上まとまった塊に
-> なり内部に穴ができず**、12 / 100 / 400 図郭のどれでも再現しなかった。
-> 部分集合で検証するときは、本番データの「形」の性質を壊していないか確かめること。
-
-### ビューワ
-
-`viewer/` は MapLibre GL JS のビューワ（Vite + TypeScript）。
-XYZ ディレクトリと PMTiles の両方に対応し、`tiles.json` の内容から自動で判別する。
-
-```bash
-cd viewer
-npm install
-npm run build        # → viewer/dist/
-npm run dev          # 開発サーバ（http://localhost:5173/）
-npm run deploy       # GitHub Pages へ（gh-pages）
-```
-
-`scripts/serve.sh` は `viewer/dist/` を作業ディレクトリへ複製して配信する。
-タイルと同一オリジンでないと `tiles.json` を相対で探せないため。
-
-機能: 背景地図の切替（淡色 / 標準 / 写真 / 白図）、ライト / ダークテーマ、
-不透明度スライダー、整備範囲へのフィット、URL ハッシュでの位置保持、PWA 対応。
-
-タイルを別ホストに置いた場合は `VITE_TILEJSON_URL` で TileJSON の場所を指定する。
-
-```bash
-VITE_TILEJSON_URL=https://example.com/ortho/tiles.json npm run build
-```
+| ドキュメント | 内容 |
+|---|---|
+| [設定リファレンス](docs/config.md) | 全設定項目・`auto` の判定ロジック・系番号が座標値だけでは決まらない理由 |
+| [図郭データの取得（Step 0）](docs/mesh-fetch.md) | 図郭索引ベクトルタイルの扱い・境界での絞り込み・実測メモ |
+| [PMTiles 出力](docs/pmtiles.md) | 2 経路の比較・`center` の桁あふれ・rio-mbtiles の罠 |
+| [設計判断と落とし穴](docs/design-notes.md) | 最大 ZL の決め方・透過処理・整備範囲の穴が黒くなる事故 |
+| [性能実測](docs/benchmarks.md) | ダウンロード・タイル生成・並列数・本番 8,844 図郭の実測 |
+| [ビューワ](docs/viewer.md) | MapLibre ビューワの機能・ビルド・別ホスト配信 |
+| [入力データの置き方](data/README.md) | ディレクトリ構成とオープンデータの入手先 |
 
 ## ディレクトリ構成
 
 ```
-.
-├── config/
-│   ├── sample.conf.example         … 設定サンプル（実体の *.conf は gitignore）
-│   └── shizuoka-city.conf.example  … オープンデータでの実例（Step 0 付き）
-├── data/                     … 入力データ（gitignore／オープンデータのみ）
-├── output/                   … 中間・出力（gitignore）
+aerial-photo-tile-pipeline/
+├── config/                    # 設定ファイル。実体の *.conf は Git 管理対象外
+│   ├── sample.conf.example         # 手元のデータから始める場合
+│   ├── shizuoka-city.conf.example  # オープンデータの実例（Step 0 付き）
+│   └── shizuoka-north.conf.example # 同上（諸元の異なる別データセット）
+├── data/                      # 入力画像を平置き。Git 管理対象外
+├── output/                    # 中間・出力。Git 管理対象外
+├── docs/                      # 詳細ドキュメント
 ├── scripts/
-│   ├── 00_build_mesh_list.sh … Step 0-a: 図郭リスト作成（任意）
-│   ├── 00_fetch_data.sh      … Step 0-b: 一括ダウンロード（任意）
-│   ├── 01_inspect.sh
-│   ├── 02_prepare.sh
-│   ├── 03_build_vrt.sh
-│   ├── 04_make_tiles.sh
-│   ├── 05_make_tilejson.sh
-│   ├── run_pipeline.sh       … Step 1〜5 の一括実行
-│   ├── serve.sh              … ローカルプレビュー
-│   └── lib/
-│       ├── common.sh         … ログ・設定ロード・共通処理
-│       └── prepare_one.sh    … 前処理ワーカー（並列実行される）
-├── tools/
-│   ├── build_mesh_index.py   … 図郭索引ベクトルタイル → 図郭リスト
-│   ├── fetch_meshes.py       … 図郭 ZIP の並列取得・平置き展開
-│   ├── inspect_inputs.py     … 入力検査・最大ZL算出
-│   ├── make_tilejson.py      … TileJSON 生成
-│   ├── mbtiles_meta.py       … PMTiles 変換前の metadata 補正
-│   ├── check_tiles.py        … 生成タイルの抜き取り検査
-│   └── serve_range.py        … HTTP Range 対応の静的サーバ
-└── viewer/                   … MapLibre ビューワ（Vite + TypeScript）
-    ├── index.html
-    ├── package.json
-    ├── public/               … icon.svg / manifest.webmanifest / sw.js
-    └── src/
-        ├── main.ts           … 地図・パネル・背景切替
-        ├── basemap.ts        … 淡色 / 標準 / 写真 / 白図
-        ├── ortho.ts          … TileJSON 読み込みとソース組み立て
-        ├── theme.ts          … ライト / ダーク
-        └── style.css
+│   ├── 00_build_mesh_list.sh … 05_make_tilejson.sh
+│   ├── run_pipeline.sh        # Step 1〜5 の一括実行
+│   ├── serve.sh               # ローカルプレビュー
+│   └── lib/                   # 共通関数（common.sh）と前処理ワーカー
+├── tools/                     # Python ツール（stdlib + osgeo のみ）
+│   ├── build_mesh_index.py    # 図郭索引ベクトルタイル → 図郭リスト
+│   ├── fetch_meshes.py        # 図郭 ZIP の並列取得・平置き展開
+│   ├── inspect_inputs.py      # 入力検査・最大 ZL 算出
+│   ├── make_tilejson.py       # TileJSON 生成
+│   ├── mbtiles_meta.py        # PMTiles 変換前の MBTiles metadata 補正
+│   ├── check_tiles.py         # 生成タイルの抜き取り検査
+│   └── serve_range.py         # HTTP Range 対応の静的サーバ
+├── viewer/                    # MapLibre ビューワ（Vite + TypeScript）
+└── LICENSE                    # Apache-2.0（対象はパイプラインとビューワ）
 ```
+
+## 留意事項
+
+- **`data/` と `output/`、案件ごとの `config/*.conf` は `.gitignore` で除外しています。** リポジトリにデータは含まれません。
+- **入力データのライセンスはパイプラインとは別です。** オープンデータを使う場合は出典表記の条件を確認し、`ATTRIBUTION` に反映してください（クイックスタートで使う静岡県のデータは ODbL）。
+- 入力は**図郭ごとに 1 ディレクトリへ平置き**する前提です。サブディレクトリは辿りません。
+- 3 バンドと 4 バンドが混在すると `gdalbuildvrt` が失敗するため、混在を検出したら Step 2 が全ファイルにアルファバンドを付けて揃えます。
+- **入力を drvfs（`/mnt/c`）から ext4 に移すと 3.5 倍速くなります**（WSL2 での実測）。支配的なのは入力の読み込みで、出力先の違いは誤差でした。
+
+## ライセンス
+
+本リポジトリのソースコードおよびドキュメントは [Apache License, Version 2.0](LICENSE) です。**パイプラインとビューワが対象で、入力する画像および生成したタイルには適用されません。**
 
 ## 参考
 
-- [GDAL: gdal2tiles](https://gdal.org/en/stable/programs/gdal2tiles.html)
-- [GDAL: gdalwarp](https://gdal.org/en/stable/programs/gdalwarp.html) / [gdalbuildvrt](https://gdal.org/en/stable/programs/gdalbuildvrt.html)
-- [GDAL: MBTiles ドライバ](https://gdal.org/en/stable/drivers/raster/mbtiles.html)
+- [GDAL: gdal2tiles](https://gdal.org/en/stable/programs/gdal2tiles.html) / [gdalwarp](https://gdal.org/en/stable/programs/gdalwarp.html) / [gdalbuildvrt](https://gdal.org/en/stable/programs/gdalbuildvrt.html)
 - [TileJSON 2.2.0 仕様](https://github.com/mapbox/tilejson-spec/tree/master/2.2.0)
-- [PMTiles v3 仕様](https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md)
-- [go-pmtiles CLI](https://docs.protomaps.com/pmtiles/cli) / [rio-mbtiles](https://github.com/mapbox/rio-mbtiles)
+- [PMTiles v3 仕様](https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md) / [go-pmtiles CLI](https://docs.protomaps.com/pmtiles/cli)
 - [国土地理院 地理院タイル一覧](https://maps.gsi.go.jp/development/ichiran.html)
