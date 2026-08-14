@@ -34,20 +34,29 @@ if [ "$(inspect_value gsd_values | tr -cd ',' | wc -c)" -gt 0 ]; then
   warn "GSD が混在（$(inspect_value gsd_values)）→ -resolution highest で最も細かい解像度に合わせます"
 fi
 
-# PMTiles 出力ではアルファバンドが必須。
-# gdal2tiles は整備範囲の外側を自前でアルファ 0 にするが、rio-mbtiles は
-# 入力が 3 バンドだと --rgba を使えず、範囲外が透過ではなく黒(0,0,0)で
-# 塗られてしまう（写真の外枠が黒くなる）。VRT 側でアルファを足しておく。
-if [ "$TILE_OUTPUT" = "pmtiles" ]; then
-  src_bands="$(gdalinfo "$(head -1 "$list_file")" | grep -c '^Band ')"
-  if [ "$src_bands" -ge 4 ]; then
-    log "入力は ${src_bands} バンド（アルファ有り）→ -addalpha は不要"
-  elif [[ " $VRT_EXTRA_OPTS " == *" -addalpha "* ]]; then
-    log "VRT_EXTRA_OPTS に -addalpha が指定済み"
-  else
-    extra_args+=(-addalpha)
-    log "アルファバンドを追加（-addalpha）: PMTiles 出力で整備範囲の外側を透過させるため"
-  fi
+src_bands="$(gdalinfo "$(head -1 "$list_file")" | grep -c '^Band ')"
+
+# モザイクにはアルファバンドが要る（出力形態によらず必須）。
+#
+# 図郭は外接矩形をぴったり埋めるとは限らない。市域のように輪郭が不定形だと、
+# 外接矩形の内側に「元データが無い穴」ができる。3 バンドのままだとその穴の画素値は
+# (0,0,0) で、これは「黒い画像」と区別が付かない。gdal2tiles は VRT の範囲外だけを
+# アルファ 0 にするため、内部の穴は不透明な黒として出力されてしまう。
+# rio-mbtiles も 3 バンドだと --rgba を使えず同じ結果になる。
+#
+# -addalpha を付けると、元データが無い画素のアルファが 0 になり穴が透過する。
+# 矩形を隙間なく埋めるデータでは全画素 255 になるだけで害はない。
+#
+# 実測（静岡市の北西端 60 図郭・ZL16）:
+#   3 バンド … 不透明な黒が 30.5%
+#   4 バンド … 0.0%（完全透過タイルは出力自体が省かれ 56枚→42枚に減る）
+if [ "$src_bands" -ge 4 ]; then
+  log "入力は ${src_bands} バンド（アルファ有り）→ -addalpha は不要"
+elif [[ " $VRT_EXTRA_OPTS " == *" -addalpha "* ]]; then
+  log "VRT_EXTRA_OPTS に -addalpha が指定済み"
+else
+  extra_args+=(-addalpha)
+  log "アルファバンドを追加（-addalpha）: 整備範囲の穴を透過させるため"
 fi
 
 # shellcheck disable=SC2206

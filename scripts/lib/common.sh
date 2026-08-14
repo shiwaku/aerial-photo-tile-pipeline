@@ -44,8 +44,10 @@ TILE_OUTPUT="dir"        # dir = XYZ ディレクトリ（gdal2tiles） / pmtile
 TILE_FORMAT="webp"       # webp | png
 WEBP_QUALITY="85"        # 非可逆の品質。lossless にすると可逆
 RESAMPLING="average"
-RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e。TILE_OUTPUT=pmtiles では無視）
+RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e）
+PMTILES_VIA="gdal2tiles"     # pmtiles の作り方: gdal2tiles（速い・既定） | rio-mbtiles
 PMTILES_KEEP_MBTILES="true"  # PMTiles 変換後に中間 MBTiles を残すか
+PMTILES_KEEP_TILES="true"    # PMTILES_VIA=gdal2tiles のとき中間の XYZ ディレクトリを残すか
 JOBS=""                  # 並列数。空なら nproc
 ATTRIBUTION=""           # TileJSON の attribution（出典表記）
 TILE_URL_TEMPLATE=""     # 例: https://example.com/data/foo/latest/tiles/{z}/{x}/{y}.webp
@@ -79,6 +81,10 @@ load_conf() {
   case "$TILE_OUTPUT" in
     dir|pmtiles) ;;
     *) die "TILE_OUTPUT は dir または pmtiles を指定してください（現在: $TILE_OUTPUT）" ;;
+  esac
+  case "$PMTILES_VIA" in
+    gdal2tiles|rio-mbtiles) ;;
+    *) die "PMTILES_VIA は gdal2tiles または rio-mbtiles を指定してください（現在: $PMTILES_VIA）" ;;
   esac
 
   WORK_DIR="$REPO_ROOT/output/$DATASET_ID"

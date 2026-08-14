@@ -1,0 +1,26 @@
+{
+  "name": "航空写真オルソ画像ビューワ",
+  "short_name": "オルソ画像",
+  "description": "航空写真（正射画像）から生成した XYZ タイル / PMTiles を表示するビューワ",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#2a78d6",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

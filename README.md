@@ -21,22 +21,26 @@ GeoTIFF / JPEG + ワールドファイルで受け取った図郭分割済みの
 
 Python 側の追加ライブラリは不要（標準ライブラリ ＋ `osgeo` のみ）。
 
-`TILE_OUTPUT="pmtiles"` を使う場合のみ追加で必要:
+ビューワを使う場合は Node.js 18+ が必要（`viewer/` は Vite プロジェクト）。
 
-| ツール | 用途 | 確認 |
-|--------|------|------|
-| [rio-mbtiles](https://github.com/mapbox/rio-mbtiles) | MBTiles 生成 | `rio mbtiles --help` |
-| [go-pmtiles](https://github.com/protomaps/go-pmtiles) | MBTiles → PMTiles | `pmtiles convert --help` |
+`TILE_OUTPUT="pmtiles"` を使う場合の追加:
+
+| ツール | 用途 | 必要な経路 | 確認 |
+|--------|------|-----------|------|
+| [go-pmtiles](https://github.com/protomaps/go-pmtiles) | MBTiles → PMTiles | 両方 | `pmtiles convert --help` |
+| [mbutil](https://github.com/mapbox/mbutil) | XYZ → MBTiles | `PMTILES_VIA="gdal2tiles"`（既定） | `mb-util --help` |
+| [rio-mbtiles](https://github.com/mapbox/rio-mbtiles) | MBTiles 生成 | `PMTILES_VIA="rio-mbtiles"` | `rio mbtiles --help` |
 
 ```bash
-pip install rio-mbtiles
-pip install "shapely>=2.0"   # ← 下記の注意を参照
+pip install mbutil
+pip install rio-mbtiles && pip install "shapely>=2.0"   # ← rio 経路を使う場合のみ
 ```
 
 > **注意**: rio-mbtiles 1.6.0 は `shapely~=1.7.0` をハード pin しているため、
 > 素直に入れると shapely 2.x が 1.7.1 へダウングレードされ、geopandas などが壊れる。
 > 実行時は shapely 2.x でも問題なく動く（pin は宣言のみ）ので、インストール後に
 > shapely を戻すこと。`pip` は依存の警告を出すが動作に影響はない。
+> 既定の `gdal2tiles` 経路なら rio-mbtiles は不要で、この問題も起きない。
 
 ## 使い方
 
@@ -54,7 +58,10 @@ $EDITOR config/sample.conf          # SRC_DIR / SRC_SRS / NODATA を埋める
 # 4. 通しで実行
 ./scripts/run_pipeline.sh config/sample.conf
 
-# 5. ローカルで確認
+# 5. ビューワをビルドする（初回のみ）
+cd viewer && npm install && npm run build && cd ..
+
+# 6. ローカルで確認
 ./scripts/serve.sh config/sample.conf     # http://localhost:8080/
 ```
 
@@ -250,26 +257,38 @@ Step 2 で `gdalwarp -srcnodata <色> -dstalpha` によりアルファバンド�
 
 | | `TILE_OUTPUT="dir"`（既定） | `TILE_OUTPUT="pmtiles"` |
 |---|---|---|
-| 生成器 | `gdal2tiles` | `rio mbtiles` → `pmtiles convert` |
 | 出力 | `output/<id>/tiles/{z}/{x}/{y}.webp` | `output/<id>/<id>.pmtiles` |
 | 配信 | 静的ホスティングにそのまま置ける | HTTP Range 対応のホスティングが必要 |
 | 途中再開 | `RESUME="true"` で不足分のみ生成 | 非対応（毎回作り直し） |
-| 速度 | 速い | 遅い（実測で約 3.7 倍） |
 
 PMTiles を選ぶ主な理由は**小さいファイルが大量にできないこと**。
-実測では 12 図郭で 556 ファイル + 62 ディレクトリ → 1 ファイルになる。
-本番規模では数十万ファイルになるため、配布・バックアップ・同期の扱いが大きく変わる。
+本番実測では 366,827 ファイル → 1 ファイル（約 7.5 GB）になった。
+配布・バックアップ・同期のほか、削除にも効く。36 万ファイルの `rm -rf` は
+drvfs 上で 10 分かかり、`du -sh` は事実上返ってこない。
 
-一方で速度は不利になる。gdal2tiles が最大ZLのタイルを作ってからピラミッドを
-縮小で積むのに対し、rio-mbtiles は ZL ごとに元データから warp し直すため。
-rio-mbtiles の公式ドキュメントも
-"suited for small to medium (~1 GB) sized sources" と明記しているので、
-大規模データセットに使う前に所要時間を小さい範囲で実測しておくこと。
+#### PMTiles の作り方（`PMTILES_VIA`）
+
+`pmtiles convert` の入力は MBTiles のみなので、どちらの経路も MBTiles を経由する。
+
+| | `"gdal2tiles"`（既定） | `"rio-mbtiles"` |
+|---|---|---|
+| 経路 | gdal2tiles → mb-util → convert | rio mbtiles → convert |
+| 400図郭の実測 | **422 秒** | 1,133 秒 |
+| 中間生成物 | XYZ ディレクトリ（大量の小ファイル） | 無し |
+| 追加の依存 | `mb-util` | `rio-mbtiles` |
+
+**既定が gdal2tiles なのは 2.7 倍速いから。** gdal2tiles は最大ZLを作ってから
+ピラミッドを縮小で積むが、rio-mbtiles は ZL ごとに元データから warp し直すため
+低ZLが重い。rio-mbtiles の公式ドキュメントも
+"suited for small to medium (~1 GB) sized sources" と明記している。
+成果物は両経路で同一（400図郭でどちらも 325 MB）。
 
 ```bash
 # 設定
 TILE_OUTPUT="pmtiles"
+PMTILES_VIA="gdal2tiles"      # または rio-mbtiles
 PMTILES_KEEP_MBTILES="true"   # 中間 MBTiles を残すか
+PMTILES_KEEP_TILES="true"     # 中間の XYZ ディレクトリを残すか
 
 # 実行（Step 1〜5 は共通）
 ./scripts/run_pipeline.sh config/sample.conf
@@ -290,6 +309,62 @@ pmtiles show output/sample/sample.pmtiles
 > 経度の和が 214.7483647 度を超えると桁があふれる。東経 138 度なら和は約 277 度で
 > 確実に該当し、center が -76 度付近（北米東岸沖）に化ける。
 > このパイプラインは `tools/mbtiles_meta.py` で `center` を明示して回避している。
+
+### 整備範囲の「穴」と生成後の検査
+
+図郭は外接矩形をぴったり埋めるとは限らない。市域のように輪郭が不定形だと
+**外接矩形の内側に元データが無い穴ができる**。静岡市では矩形の 52.6% が穴だった。
+
+このとき VRT が 3 バンドだと、穴の画素値は `(0,0,0)` になり「黒い写真」と
+区別が付かない。gdal2tiles が透過にするのは VRT の範囲外だけなので、
+**穴は不透明な黒として出力される**。QGIS で開くと範囲外が黒く塗り潰される。
+
+対策として Step 3 は `gdalbuildvrt -addalpha` を**常に**付ける。元データが無い
+画素のアルファが 0 になり穴が透過する。矩形を隙間なく埋めるデータでは
+全画素 255 になるだけで害はない。
+
+Step 4 は生成後に `tools/check_tiles.py` で 200 枚を抜き取り検査する。
+
+```
+[20:49:07] 検査: 200 枚を抜き取り / 不透明な黒 0.00% / 透過 5.74%
+```
+
+「不透明な黒」（RGB=0 かつ アルファ=255）が 2% を超えると警告が出る。
+警告が出たら VRT にアルファバンドがあるか確認する。
+
+```bash
+gdalinfo output/<id>/merge.vrt | grep '^Band '
+```
+
+> この問題は本番 8,844 図郭を 4 時間かけて作ってから発覚した。事前検証に使った
+> 部分集合を「重心から近い順に N 枚」で選んでいたため、**定義上まとまった塊に
+> なり内部に穴ができず**、12 / 100 / 400 図郭のどれでも再現しなかった。
+> 部分集合で検証するときは、本番データの「形」の性質を壊していないか確かめること。
+
+### ビューワ
+
+`viewer/` は MapLibre GL JS のビューワ（Vite + TypeScript）。
+XYZ ディレクトリと PMTiles の両方に対応し、`tiles.json` の内容から自動で判別する。
+
+```bash
+cd viewer
+npm install
+npm run build        # → viewer/dist/
+npm run dev          # 開発サーバ（http://localhost:5173/）
+npm run deploy       # GitHub Pages へ（gh-pages）
+```
+
+`scripts/serve.sh` は `viewer/dist/` を作業ディレクトリへ複製して配信する。
+タイルと同一オリジンでないと `tiles.json` を相対で探せないため。
+
+機能: 背景地図の切替（淡色 / 標準 / 写真 / 白図）、ライト / ダークテーマ、
+不透明度スライダー、整備範囲へのフィット、URL ハッシュでの位置保持、PWA 対応。
+
+タイルを別ホストに置いた場合は `VITE_TILEJSON_URL` で TileJSON の場所を指定する。
+
+```bash
+VITE_TILEJSON_URL=https://example.com/ortho/tiles.json npm run build
+```
 
 ## ディレクトリ構成
 
@@ -319,9 +394,18 @@ pmtiles show output/sample/sample.pmtiles
 │   ├── inspect_inputs.py     … 入力検査・最大ZL算出
 │   ├── make_tilejson.py      … TileJSON 生成
 │   ├── mbtiles_meta.py       … PMTiles 変換前の metadata 補正
+│   ├── check_tiles.py        … 生成タイルの抜き取り検査
 │   └── serve_range.py        … HTTP Range 対応の静的サーバ
-└── viewer/
-    └── index.html            … MapLibre プレビュー（XYZ / PMTiles 両対応）
+└── viewer/                   … MapLibre ビューワ（Vite + TypeScript）
+    ├── index.html
+    ├── package.json
+    ├── public/               … icon.svg / manifest.webmanifest / sw.js
+    └── src/
+        ├── main.ts           … 地図・パネル・背景切替
+        ├── basemap.ts        … 淡色 / 標準 / 写真 / 白図
+        ├── ortho.ts          … TileJSON 読み込みとソース組み立て
+        ├── theme.ts          … ライト / ダーク
+        └── style.css
 ```
 
 ## 参考
