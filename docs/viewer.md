@@ -47,11 +47,38 @@ TileJSON の場所を `VITE_TILEJSON_URL` で指定してビルドします。
 VITE_TILEJSON_URL=https://example.com/ortho/tiles.json npm run build
 ```
 
-タイル自体の URL は TileJSON の `tiles[]` に入るため、パイプライン側で `TILE_URL_TEMPLATE` を設定してから Step 5 を実行してください。
+**TileJSON をタイル（または PMTiles）と同じディレクトリに置けば、それ以外の設定は要りません。** ビューワは `tiles[]` の相対 URL を TileJSON の URL 基準で解決するため、パイプラインが生成した `tiles.json` をそのままアップロードできます。
+
+TileJSON だけを別の場所（ビューワと同じオリジンなど）に置く場合は、`tiles[]` を絶対 URL にする必要があります。パイプライン側で `TILE_URL_TEMPLATE` を設定してから Step 5 を実行してください。
 
 ```bash
 TILE_URL_TEMPLATE="https://example.com/ortho/tiles/{z}/{x}/{y}.webp"
+TILE_URL_TEMPLATE="pmtiles://https://example.com/ortho/aerial-photo.pmtiles/{z}/{x}/{y}"
 ```
+
+## GitHub Pages で公開する
+
+ビューワを GitHub Pages に、タイルを別ホストに置く構成です。`vite.config.ts` の `base` はビルド時に `./` になるため、Pages のサブパス（`https://<user>.github.io/<repo>/`）でもそのまま動きます。
+
+```bash
+cd viewer
+VITE_TILEJSON_URL=https://example.com/ortho/tiles.json npm run deploy
+```
+
+> **`npm run deploy` は内部で `npm run build` をやり直します。** 環境変数を付けたまま実行しないと TileJSON の URL が消え、公開後に白い地図になります。
+
+配信ホスト側に必要な条件は 2 つです。
+
+| 条件 | 確認方法 |
+|---|---|
+| HTTP Range に対応している（PMTiles の場合） | `curl -D - -o /dev/null -H 'Range: bytes=0-99' <url>` が `206` を返す |
+| CORS を許可している | 同じリクエストに `Origin:` を付けて `access-control-allow-origin` が返る |
+
+PMTiles を配信する場合、[protomaps のドキュメント](https://docs.protomaps.com/pmtiles/cloud-storage)は `Range` / `If-Match` リクエストヘッダの許可と、`ETag` / `Access-Control-Allow-Origin` / `Access-Control-Allow-Methods`（GET, HEAD）レスポンスヘッダを挙げています。
+
+**タイル自体を GitHub Pages に置く場合は容量に注意してください。** [公開サイトの上限は 1 GB](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)、帯域は月 100 GB（ソフト）です。本番規模の PMTiles（実測 7.9 GB）は収まりません。サンプル規模（12 図郭で 9.3 MB）なら問題ありません。
+
+なお公開はデータの再配布にあたります。入力データのライセンス条件を確認し、`ATTRIBUTION` に出典表記を入れてください（ビューワの著作権表示に出ます）。
 
 ## ソース構成
 

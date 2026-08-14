@@ -45,6 +45,7 @@ TILE_FORMAT="webp"       # webp | png
 WEBP_QUALITY="85"        # 非可逆の品質。lossless にすると可逆
 RESAMPLING="average"
 RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e）
+PMTILES_NAME=""              # PMTiles / MBTiles のファイル名（拡張子なし）。空なら DATASET_ID
 PMTILES_VIA="gdal2tiles"     # pmtiles の作り方: gdal2tiles（速い・既定） | rio-mbtiles
 PMTILES_KEEP_MBTILES="true"  # PMTiles 変換後に中間 MBTiles を残すか
 PMTILES_KEEP_TILES="true"    # PMTILES_VIA=gdal2tiles のとき中間の XYZ ディレクトリを残すか
@@ -93,9 +94,12 @@ load_conf() {
   VRT_FILE="$WORK_DIR/merge.vrt"
   TILES_DIR="$WORK_DIR/tiles"
   MESH_LIST="$WORK_DIR/mesh_list.csv"
-  # TILE_OUTPUT="pmtiles" のときの中間ファイルと最終成果物
-  MBTILES_FILE="$WORK_DIR/$DATASET_ID.mbtiles"
-  PMTILES_FILE="$WORK_DIR/$DATASET_ID.pmtiles"
+  # TILE_OUTPUT="pmtiles" のときの中間ファイルと最終成果物。
+  # 配信先で他のデータと同じディレクトリに並べる場合、DATASET_ID（地域名）より
+  # 中身が分かる名前にしたいことがあるため PMTILES_NAME で上書きできる。
+  : "${PMTILES_NAME:=$DATASET_ID}"
+  MBTILES_FILE="$WORK_DIR/$PMTILES_NAME.mbtiles"
+  PMTILES_FILE="$WORK_DIR/$PMTILES_NAME.pmtiles"
   export WORK_DIR INSPECT_DIR PREPARED_DIR VRT_FILE TILES_DIR MESH_LIST
   export MBTILES_FILE PMTILES_FILE
 

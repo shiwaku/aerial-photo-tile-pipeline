@@ -63,6 +63,12 @@ TILE_OUTPUT="dir"
 #                  中間ディレクトリを作らないが遅い。要 rio-mbtiles
 PMTILES_VIA="gdal2tiles"
 
+# 成果物のファイル名（拡張子なし）。空なら DATASET_ID がそのまま使われる。
+# 配信先で他のデータと同じディレクトリに並べる場合、地域名より中身が分かる名前に
+# したいことがあるため上書きできる（例: shizuoka-city.pmtiles → aerial-photo.pmtiles）。
+# tiles.json が指す名前もこれに追従するので、手で書き換える必要はない
+PMTILES_NAME=""
+
 # 変換後に中間の MBTiles を残すか（本番規模では数GBになる）
 PMTILES_KEEP_MBTILES="true"
 
