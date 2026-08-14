@@ -51,6 +51,19 @@ PMTiles v3 の `tile_type` は WebP = 4（PNG = 2 / JPEG = 3 / AVIF = 5）です
 
 Step 5 は設定ではなく `output/<id>/tiles_meta.json` の `output` を見て出力形態を分岐します。設定を後から変えると実体と食い違うためです。
 
+## 成果物のファイル名（`PMTILES_NAME`）
+
+既定のファイル名は `DATASET_ID` です。配信先で他のデータと同じディレクトリに並べる場合、地域名より中身が分かる名前にしたいことがあるため `PMTILES_NAME` で上書きできます。
+
+```bash
+DATASET_ID="shizuoka-city"
+PMTILES_NAME="aerial-photo"     # → output/shizuoka-city/aerial-photo.pmtiles
+```
+
+中間の MBTiles も同じ名前になり、**`tiles.json` が指す名前も追従します**（`TILE_URL_TEMPLATE` が空なら Step 5 が `PMTILES_FILE` の basename から相対 URL を組む）。
+
+> **アップロード時に手でリネームしないでください。** `tiles.json` は生成時のファイル名を指しているため、実体だけ改名すると PMTiles が 404 になります。名前を変えたいときは `PMTILES_NAME` を設定し、既存の成果物を `mv` してから Step 5 を再実行してください（タイルの作り直しは不要です）。
+
 ## 2 つの経路（`PMTILES_VIA`）
 
 **`pmtiles convert` の入力は MBTiles のみ**（公式 CLI ドキュメントおよび `pmtiles convert --help` で確認）で、タイルディレクトリからの直接変換口はありません。どちらの経路も最後は MBTiles を経由します。
