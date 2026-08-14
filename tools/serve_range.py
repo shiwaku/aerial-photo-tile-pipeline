@@ -60,9 +60,17 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
         ".geojson": "application/geo+json",
     }
 
+    # データセットを切り替えると同じ URL（tiles.json / index.html）で中身が変わる。
+    # Cache-Control を送らないとブラウザが Last-Modified から勝手にキャッシュ期間を
+    # 推測し、前のデータセットの tiles.json を使い続けて 404 になる（実際に踏んだ）。
+    # 小さいメタデータ類は毎回取り直させる。タイル本体は名前が変わるので対象外。
+    NO_STORE_SUFFIXES = (".json", ".html", ".webmanifest", "/")
+
     def end_headers(self) -> None:
         # 範囲リクエストに対応していることをクライアントに知らせる
         self.send_header("Accept-Ranges", "bytes")
+        if self.path.split("?")[0].endswith(self.NO_STORE_SUFFIXES):
+            self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
     def send_head(self):

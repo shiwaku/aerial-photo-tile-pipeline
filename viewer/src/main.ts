@@ -28,10 +28,9 @@ try {
   throw e
 }
 
-// PMTiles 経由のときだけプロトコルを登録する（XYZ 配信では不要）
-if (ortho.isPmtiles) {
-  maplibregl.addProtocol('pmtiles', new Protocol().tile)
-}
+// PMTiles プロトコルは常に登録する。オルソが XYZ 配信でも、背景の
+// 最適化ベクトルタイルが PMTiles で配信されているため必要になる。
+maplibregl.addProtocol('pmtiles', new Protocol().tile)
 
 const tj = ortho.tilejson
 let orthoOn = true
@@ -41,7 +40,7 @@ let orthoOpacity = 1
 
 const map = new maplibregl.Map({
   container: 'map',
-  style: getBasemapStyle(base, theme),
+  style: await getBasemapStyle(base, theme),
   center: [tj.center?.[0] ?? 138.4, tj.center?.[1] ?? 35.0],
   zoom: tj.center?.[2] ?? tj.minzoom,
   minZoom: Math.max(0, tj.minzoom - 2),
@@ -93,8 +92,8 @@ function addOrthoLayer(): void {
 // ラスタ同士の切替でも、白図（sources なし）との往復で diff 適用が破綻するため
 // diff:false で作り直す。setStyle 直後は isStyleLoaded() が旧スタイルで true を
 // 返して競合するので、idle を待ってから貼り直す。
-function reloadStyle(): void {
-  map.setStyle(getBasemapStyle(base, theme), { diff: false })
+async function reloadStyle(): Promise<void> {
+  map.setStyle(await getBasemapStyle(base, theme), { diff: false })
   map.once('idle', addOrthoLayer)
 }
 
@@ -107,7 +106,7 @@ themeBtn.addEventListener('click', () => {
   theme = theme === 'dark' ? 'light' : 'dark'
   applyThemeAttr(theme)
   renderThemeBtn()
-  reloadStyle()
+  void reloadStyle()
 })
 
 // ---- パネル開閉 ------------------------------------------------------------
@@ -183,7 +182,7 @@ function setBase(next: Basemap): void {
   if (next === base) return
   base = next
   basemapCtrl.sync()
-  reloadStyle()
+  void reloadStyle()
 }
 
 // ---- ズームレベル表示 ------------------------------------------------------

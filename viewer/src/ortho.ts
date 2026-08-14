@@ -41,7 +41,10 @@ const XYZ_SUFFIX = '/{z}/{x}/{y}'
 
 async function fetchJson(url: string): Promise<TileJson | null> {
   try {
-    const res = await fetch(url)
+    // 同じポートでデータセットを切り替えると、ブラウザが前の tiles.json を
+    // キャッシュから返し、存在しない PMTiles を要求して 404 になる。
+    // メタデータは常に取り直す（数百バイトなので毎回取っても問題ない）。
+    const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) return null
     return (await res.json()) as TileJson
   } catch {
