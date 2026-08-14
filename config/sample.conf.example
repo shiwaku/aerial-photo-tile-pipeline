@@ -49,14 +49,26 @@ MAX_ZOOM="auto"
 # --- 出力形式 -----------------------------------------------------------------
 
 # タイルの出力形態。
-#   dir      … XYZ ディレクトリ（gdal2tiles）。静的ホスティングにそのまま置ける
-#   pmtiles  … 単一ファイル（rio-mbtiles で MBTiles → pmtiles convert）。
-#              小さいファイルが大量にできないので配布・保管が楽
-# pmtiles には rio-mbtiles（pip install rio-mbtiles）と pmtiles CLI が必要
+#   dir      … XYZ ディレクトリ。静的ホスティングにそのまま置ける
+#   pmtiles  … 単一ファイル。小さいファイルが大量にできないので配布・保管が楽
 TILE_OUTPUT="dir"
 
-# PMTiles 変換後に中間の MBTiles を残すか（TILE_OUTPUT="pmtiles" のときのみ）
+# --- 以下は TILE_OUTPUT="pmtiles" のときだけ効く -------------------------------
+
+# PMTiles の作り方。どちらも最後は MBTiles を経由する
+# （pmtiles convert の入力は MBTiles のみのため）。
+#   gdal2tiles   … gdal2tiles → mb-util → pmtiles convert（既定・実測で2.7倍速い）
+#                  中間の XYZ ディレクトリを一度作る。要 mb-util
+#   rio-mbtiles  … rio mbtiles → pmtiles convert
+#                  中間ディレクトリを作らないが遅い。要 rio-mbtiles
+PMTILES_VIA="gdal2tiles"
+
+# 変換後に中間の MBTiles を残すか（本番規模では数GBになる）
 PMTILES_KEEP_MBTILES="true"
+
+# 変換後に中間の XYZ ディレクトリを残すか（PMTILES_VIA="gdal2tiles" のときのみ）
+# 本番規模では数十万ファイルになる。削除にも時間がかかる点に注意
+PMTILES_KEEP_TILES="true"
 
 # webp（推奨・写真系で圧縮がよく効く）または png
 TILE_FORMAT="webp"

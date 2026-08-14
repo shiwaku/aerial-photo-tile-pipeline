@@ -2,6 +2,9 @@
 # 生成タイルをローカルで確認する（MapLibre のビューワを起動）。
 #
 # Usage: scripts/serve.sh config/<name>.conf [port]
+#
+# ビューワは viewer/ の Vite プロジェクト。初回だけビルドが要る:
+#   cd viewer && npm install && npm run build
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 load_conf "${1:-}"
@@ -15,8 +18,15 @@ else
   [ -f "$TILES_DIR/tiles.json" ] || warn "tiles.json がありません（Step 5 未実行）"
 fi
 
-# タイル（$WORK_DIR 配下）と同一オリジンで配信するため $WORK_DIR に置く
-cp -f "$REPO_ROOT/viewer/index.html" "$WORK_DIR/index.html"
+dist="$REPO_ROOT/viewer/dist"
+if [ ! -f "$dist/index.html" ]; then
+  die "ビューワが未ビルドです。次を実行してください:
+    cd $REPO_ROOT/viewer && npm install && npm run build"
+fi
+
+# ビューワはタイルと同一オリジンで配信する必要がある（tiles.json を相対で探すため）。
+# ビルド成果物を作業ディレクトリへ複製する。パイプラインの出力とは名前が衝突しない。
+cp -r "$dist"/. "$WORK_DIR"/
 
 log "http://localhost:$port/ を開いてください（Ctrl+C で終了）"
 
