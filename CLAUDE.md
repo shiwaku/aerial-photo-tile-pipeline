@@ -6,7 +6,10 @@
 GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 → モザイク結合 →
 タイル生成 → TileJSON を設定ファイル 1 枚で通す。
 
-詳細な使い方・設計判断は `README.md` を参照。
+`README.md` はクイックスタート中心。詳細は `docs/` に分けてある
+（`config.md` / `mesh-fetch.md` / `pmtiles.md` / `design-notes.md` / `benchmarks.md` / `viewer.md`）。
+設計判断を書き足すときは README ではなく該当する `docs/*.md` に足し、
+README のドキュメント表からリンクされていることを確認する。
 
 ## 取り扱いルール（重要）
 
@@ -34,6 +37,7 @@ GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 →
 | `tools/check_tiles.py` | 生成タイルの抜き取り検査（不透明な黒の混入を検出） |
 | `tools/serve_range.py` | HTTP Range 対応の静的サーバ（PMTiles プレビュー用・stdlib のみ） |
 | `viewer/` | MapLibre ビューワ（Vite + TypeScript）。`npm install && npm run build` が必要 |
+| `docs/` | 詳細ドキュメント（README から外出しした設定・Step 0・PMTiles・設計判断・実測） |
 
 ## 設計上の決めごと
 
