@@ -43,4 +43,8 @@ done
 elapsed=$((SECONDS - start_epoch))
 step "完了（所要 $((elapsed / 60))分$((elapsed % 60))秒）"
 log "出力: $WORK_DIR"
-[ -d "$TILES_DIR" ] && log "プレビュー: scripts/serve.sh $conf"
+if [ "$TILE_OUTPUT" = "pmtiles" ]; then
+  [ -f "$PMTILES_FILE" ] && log "プレビュー: scripts/serve.sh $conf"
+else
+  [ -d "$TILES_DIR" ] && log "プレビュー: scripts/serve.sh $conf"
+fi

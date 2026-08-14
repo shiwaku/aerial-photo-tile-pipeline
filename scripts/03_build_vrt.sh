@@ -6,7 +6,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 load_conf "${1:-}"
-require_cmd gdalbuildvrt
+require_cmd gdalbuildvrt gdalinfo
 
 step "Step 3: VRT 作成（$DATASET_ID）"
 
@@ -33,6 +33,23 @@ if [ "$(inspect_value gsd_values | tr -cd ',' | wc -c)" -gt 0 ]; then
   extra_args+=(-resolution highest)
   warn "GSD が混在（$(inspect_value gsd_values)）→ -resolution highest で最も細かい解像度に合わせます"
 fi
+
+# PMTiles 出力ではアルファバンドが必須。
+# gdal2tiles は整備範囲の外側を自前でアルファ 0 にするが、rio-mbtiles は
+# 入力が 3 バンドだと --rgba を使えず、範囲外が透過ではなく黒(0,0,0)で
+# 塗られてしまう（写真の外枠が黒くなる）。VRT 側でアルファを足しておく。
+if [ "$TILE_OUTPUT" = "pmtiles" ]; then
+  src_bands="$(gdalinfo "$(head -1 "$list_file")" | grep -c '^Band ')"
+  if [ "$src_bands" -ge 4 ]; then
+    log "入力は ${src_bands} バンド（アルファ有り）→ -addalpha は不要"
+  elif [[ " $VRT_EXTRA_OPTS " == *" -addalpha "* ]]; then
+    log "VRT_EXTRA_OPTS に -addalpha が指定済み"
+  else
+    extra_args+=(-addalpha)
+    log "アルファバンドを追加（-addalpha）: PMTiles 出力で整備範囲の外側を透過させるため"
+  fi
+fi
+
 # shellcheck disable=SC2206
 [ -n "$VRT_EXTRA_OPTS" ] && extra_args+=($VRT_EXTRA_OPTS)
 

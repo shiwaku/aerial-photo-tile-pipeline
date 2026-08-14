@@ -30,6 +30,8 @@ GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 →
 | `tools/fetch_meshes.py` | 図郭 ZIP の並列取得・平置き展開 |
 | `tools/inspect_inputs.py` | 入力検査・推奨最大ZL算出（stdlib + `osgeo` のみ） |
 | `tools/make_tilejson.py` | TileJSON 生成 |
+| `tools/mbtiles_meta.py` | PMTiles 変換前の MBTiles metadata 補正（stdlib のみ） |
+| `tools/serve_range.py` | HTTP Range 対応の静的サーバ（PMTiles プレビュー用・stdlib のみ） |
 
 ## 設計上の決めごと
 
@@ -63,6 +65,17 @@ GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 →
 - **VRT 経由**: `gdal2tiles` は 1 ファイルしか受け付けないため必ず VRT を作る。
   ファイル数が多くても引数長制限に当たらないよう `-input_file_list` を使う。
 - **出力形式**: 既定は WebP 非可逆 品質85。`TILE_FORMAT=png` で PNG。
+- **出力形態（`TILE_OUTPUT`）**: `dir`（既定・gdal2tiles で XYZ ディレクトリ）と
+  `pmtiles`（rio-mbtiles → MBTiles → `pmtiles convert`）の 2 系統。Step 5 は
+  設定ではなく `tiles_meta.json` の `output` を見て分岐する
+  （設定を後から変えると実体と食い違うため）。
+- **PMTiles 経路で GDAL の MBTiles ドライバを使わない理由**: GDAL 3.11 の
+  MBTiles ドライバには `ZOOM_LEVEL` 作成オプションが無く（あるのは
+  `ZOOM_LEVEL_STRATEGY` だけ）、解像度から ZL が自動決定されるため `MAX_ZOOM`
+  を尊重できない。ZL を合わせるには入力を目的 ZL の解像度へスナップさせる
+  細工が要る。rio-mbtiles は `--zoom-levels MIN..MAX` で明示できるため、そちらを使う。
+  なお `gdalwarp -of MBTILES` は Create() 経路で「解像度が ZL と完全一致」を
+  要求して失敗する。`gdal_translate`（CreateCopy）なら 3857 へ自動再投影される。
 - **冪等性**: Step 2 は出力が入力より新しければスキップする。
   Step 0-b も展開済みの図郭をスキップするため中断・再実行に耐える。
   Step 4 の再実行は `gdal2tiles` がディレクトリを上書きする（`-e` は使っていない）。
@@ -96,6 +109,62 @@ GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 →
   余白が存在せず、`"0 0 0"` は影、`"255 255 255"` は白飽和部分を誤透過させる。
   Step 1 の検査結果と、整備範囲の縁にある図郭の画素を実際に確認してから決める。
 
+## PMTiles 出力（`TILE_OUTPUT="pmtiles"`）の実測メモ
+
+オープンデータ 12 図郭で end-to-end 検証して確認した事実。
+
+- **`pmtiles convert` の入力は MBTiles のみ**（公式 CLI ドキュメントおよび
+  `pmtiles convert --help` で確認）。タイルディレクトリからの直接変換口は無い。
+  どの経路を選んでも最後は必ず MBTiles を経由する。
+- **go-pmtiles は center の経度を桁あふれさせる。日本全域が該当する。**
+  metadata に `center` が無いと go-pmtiles が `bounds` から計算するが、
+  経度を E7 の int32 で「先に加算してから 2 で割る」実装のため、
+  経度の和が 214.7483647 度（= 2³¹ / 10⁷）を超えるとあふれる。
+  東経 138 度なら和は約 277 度で確実に該当し、center が -76 度付近に化ける。
+  実測: `(1383773285 + 1383904847) - 2³² = -1527289164`、÷2 で -76.3644582。
+  PMTiles v3 仕様は center を int32 E7 で持つので値自体は表現できる。
+  あふれるのは go-pmtiles の途中計算だけ。
+  **回避策は metadata に `center` を明示すること**（あれば go-pmtiles は計算しない）。
+  `tools/mbtiles_meta.py` がここを担当する。producer（GDAL / rio-mbtiles）を
+  変えても再現するので、producer 側の問題ではない。
+- **rio-mbtiles は `minzoom` / `maxzoom` / `center` を metadata に書かない**
+  （書くのは name / type / version / description / format / bounds のみ）。
+  min/max zoom は `pmtiles convert` が tiles テーブルから導出するので実害は無いが、
+  center は上記のとおり壊れる。
+- **rio-mbtiles 1.6.0 は初回実行が必ず落ちる。**
+  `--overwrite`（既定）かつ出力ファイルが存在しないとき、`appending` が
+  どの分岐でも代入されないままクロージャから参照され `NameError` になる
+  （`mbtiles/scripts/cli.py` の `init_mbtiles`）。
+  ```python
+  if append:              appending = output_exists
+  elif output_exists:     appending = False      # ← 出力が無いとどちらにも入らない
+  ```
+  **出力を空ファイルで先に作れば上書き経路に入って正常動作する。**
+- **rio-mbtiles は `shapely~=1.7.0` をハード pin している。**
+  素直に `pip install` すると shapely 2.x が 1.7.1 へダウングレードされ、
+  geopandas や mapbox-vector-tile が壊れる。実行時は shapely 2.1.2 でも
+  問題なく動く（pin は宣言のみ）ので、**インストール後に shapely を戻すこと**。
+- **PMTiles 出力では VRT にアルファバンドが要る（`-addalpha`）。**
+  忘れると**整備範囲の外側が透過ではなく黒 (0,0,0) で塗られ、写真の外枠が黒くなる**。
+  gdal2tiles は範囲外を自前でアルファ 0 にするため dir 経路では起きず、
+  PMTiles 経路だけで出る。原因は NoData の設定ではない（余白の無いデータでも出る）。
+  rio-mbtiles の `--rgba` は入力 4 バンド以上が条件なので、3 バンドのままだと
+  アルファを持てず 0 = 黒が残る。Step 3 が `TILE_OUTPUT="pmtiles"` かつ
+  入力 3 バンドのとき `-addalpha` を付け、Step 4 が 4 バンドを検出して `--rgba` を渡す。
+  実測: 端タイルの四隅が `(0,0,0)` → `(0,0,0,0)` になり gdal2tiles と一致した。
+  なお完全不透明なタイルは WebP 側でアルファが落ちて RGB になる（正常）。
+- **NoData の色指定は rio-mbtiles では表現できない。** `--src-nodata` は
+  単一 FLOAT で、このリポジトリが使う `"255 255 255"` のような RGB 指定を
+  受け付けない。透過は Step 2 の前処理でアルファバンドを付け、Step 4 は
+  4 バンドを検出したら `--rgba` を渡す、という既存の流れに乗せる。
+  `--rgba` は PNG / WEBP のみ・入力 4 バンド以上が条件。
+- **`python3 -m http.server` は Range 非対応なので PMTiles を配信できない。**
+  PMTiles は 1 ファイルの中を Range で部分読みする。標準の http.server は
+  Range を実装しておらず常に全体を 200 で返すため読めない。
+  プレビュー用に `tools/serve_range.py` を用意した。
+- PMTiles v3 の `tile_type` は WebP = 4（PNG = 2 / JPEG = 3 / AVIF = 5）。
+  `pmtiles show` の `tile type: webp` で確認できる。
+
 ## 開発時の注意
 
 - スクリプトは `set -euo pipefail` 前提。`common.sh` を `source` してから使う。
@@ -118,3 +187,11 @@ GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 →
   なお `/mnt/c`（drvfs）への書き込みは 209 MB/s 出ており律速ではない。
 - **タイル生成は 12 図郭（1.44 km²・GSD 0.20 m/px）で 8 秒**（16 並列、ZL9-19、
   WebP 品質85、556 枚 9.3 MB）。線形換算で 8,840 図郭なら約 1.6 時間。
+- **PMTiles 経路は同条件で 30 秒**（`rio mbtiles -j 16` が 30 秒、
+  `pmtiles convert` が 1.2 秒）。同じ 556 枚・ZL9-19 で 9.2 MB。
+  つまり **gdal2tiles の約 3.7 倍遅い**。線形換算で 8,840 図郭なら約 6 時間。
+  gdal2tiles が最大ZLのタイルを作ってからピラミッドを縮小で積むのに対し、
+  rio-mbtiles は ZL ごとに元データから warp し直すため。
+  なお rio-mbtiles の公式ドキュメントは
+  "suited for small to medium (~1 GB) sized sources" と明記している。
+  大規模データセットに使う前に、この 2 点（所要時間・想定サイズ）を確認すること。

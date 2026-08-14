@@ -40,10 +40,12 @@ SRC_SRS="auto"           # 入力の CRS（例: EPSG:6676）。auto で座標値
 NODATA="auto"            # 図郭外の余白色（"255 255 255" 等）。auto で外周画素から判定、空で透過処理なし
 MIN_ZOOM="9"
 MAX_ZOOM="auto"          # auto = GSD から自動決定
+TILE_OUTPUT="dir"        # dir = XYZ ディレクトリ（gdal2tiles） / pmtiles = 単一ファイル（rio-mbtiles + pmtiles）
 TILE_FORMAT="webp"       # webp | png
 WEBP_QUALITY="85"        # 非可逆の品質。lossless にすると可逆
 RESAMPLING="average"
-RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e）
+RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e。TILE_OUTPUT=pmtiles では無視）
+PMTILES_KEEP_MBTILES="true"  # PMTiles 変換後に中間 MBTiles を残すか
 JOBS=""                  # 並列数。空なら nproc
 ATTRIBUTION=""           # TileJSON の attribution（出典表記）
 TILE_URL_TEMPLATE=""     # 例: https://example.com/data/foo/latest/tiles/{z}/{x}/{y}.webp
@@ -74,13 +76,22 @@ load_conf() {
   : "${DATASET_NAME:=$DATASET_ID}"
   : "${JOBS:=$(nproc)}"
 
+  case "$TILE_OUTPUT" in
+    dir|pmtiles) ;;
+    *) die "TILE_OUTPUT は dir または pmtiles を指定してください（現在: $TILE_OUTPUT）" ;;
+  esac
+
   WORK_DIR="$REPO_ROOT/output/$DATASET_ID"
   INSPECT_DIR="$WORK_DIR/inspect"
   PREPARED_DIR="$WORK_DIR/prepared"
   VRT_FILE="$WORK_DIR/merge.vrt"
   TILES_DIR="$WORK_DIR/tiles"
   MESH_LIST="$WORK_DIR/mesh_list.csv"
+  # TILE_OUTPUT="pmtiles" のときの中間ファイルと最終成果物
+  MBTILES_FILE="$WORK_DIR/$DATASET_ID.mbtiles"
+  PMTILES_FILE="$WORK_DIR/$DATASET_ID.pmtiles"
   export WORK_DIR INSPECT_DIR PREPARED_DIR VRT_FILE TILES_DIR MESH_LIST
+  export MBTILES_FILE PMTILES_FILE
 
   mkdir -p "$WORK_DIR"
 }

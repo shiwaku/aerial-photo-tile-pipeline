@@ -8,6 +8,7 @@ GeoTIFF / JPEG + ワールドファイルで受け取った図郭分割済みの
 - 入力の諸元（GSD・CRS・バンド構成・NoData）を機械的に検査し、**最大ズームレベルを自動決定**する
 - 図郭外の余白（白地／黒地）をアルファバンドに変換して透過させる
 - 出力は **WebP（既定）** または PNG
+- 出力形態は **XYZ ディレクトリ（既定）** または **PMTiles（単一ファイル）**
 - 生成物をローカルの MapLibre ビューワで即確認できる
 
 ## 必要なもの
@@ -19,6 +20,23 @@ GeoTIFF / JPEG + ワールドファイルで受け取った図郭分割済みの
 | bash 4+ | スクリプト実行 | — |
 
 Python 側の追加ライブラリは不要（標準ライブラリ ＋ `osgeo` のみ）。
+
+`TILE_OUTPUT="pmtiles"` を使う場合のみ追加で必要:
+
+| ツール | 用途 | 確認 |
+|--------|------|------|
+| [rio-mbtiles](https://github.com/mapbox/rio-mbtiles) | MBTiles 生成 | `rio mbtiles --help` |
+| [go-pmtiles](https://github.com/protomaps/go-pmtiles) | MBTiles → PMTiles | `pmtiles convert --help` |
+
+```bash
+pip install rio-mbtiles
+pip install "shapely>=2.0"   # ← 下記の注意を参照
+```
+
+> **注意**: rio-mbtiles 1.6.0 は `shapely~=1.7.0` をハード pin しているため、
+> 素直に入れると shapely 2.x が 1.7.1 へダウングレードされ、geopandas などが壊れる。
+> 実行時は shapely 2.x でも問題なく動く（pin は宣言のみ）ので、インストール後に
+> shapely を戻すこと。`pip` は依存の警告を出すが動作に影響はない。
 
 ## 使い方
 
@@ -225,6 +243,54 @@ Step 2 で `gdalwarp -srcnodata <色> -dstalpha` によりアルファバンド�
 `TILE_FORMAT` / `WEBP_QUALITY` を変えて Step 4 を回し、
 `output/<id>/tiles_meta.json` の `total_bytes` を比較して決めるとよい。
 
+### 出力形態（XYZ ディレクトリ / PMTiles）
+
+`TILE_OUTPUT` で切り替える。タイルの中身（WebP / ZL 範囲 / リサンプリング）は
+どちらも同じ設定が効く。
+
+| | `TILE_OUTPUT="dir"`（既定） | `TILE_OUTPUT="pmtiles"` |
+|---|---|---|
+| 生成器 | `gdal2tiles` | `rio mbtiles` → `pmtiles convert` |
+| 出力 | `output/<id>/tiles/{z}/{x}/{y}.webp` | `output/<id>/<id>.pmtiles` |
+| 配信 | 静的ホスティングにそのまま置ける | HTTP Range 対応のホスティングが必要 |
+| 途中再開 | `RESUME="true"` で不足分のみ生成 | 非対応（毎回作り直し） |
+| 速度 | 速い | 遅い（実測で約 3.7 倍） |
+
+PMTiles を選ぶ主な理由は**小さいファイルが大量にできないこと**。
+実測では 12 図郭で 556 ファイル + 62 ディレクトリ → 1 ファイルになる。
+本番規模では数十万ファイルになるため、配布・バックアップ・同期の扱いが大きく変わる。
+
+一方で速度は不利になる。gdal2tiles が最大ZLのタイルを作ってからピラミッドを
+縮小で積むのに対し、rio-mbtiles は ZL ごとに元データから warp し直すため。
+rio-mbtiles の公式ドキュメントも
+"suited for small to medium (~1 GB) sized sources" と明記しているので、
+大規模データセットに使う前に所要時間を小さい範囲で実測しておくこと。
+
+```bash
+# 設定
+TILE_OUTPUT="pmtiles"
+PMTILES_KEEP_MBTILES="true"   # 中間 MBTiles を残すか
+
+# 実行（Step 1〜5 は共通）
+./scripts/run_pipeline.sh config/sample.conf
+./scripts/serve.sh config/sample.conf      # Range 対応サーバで起動する
+```
+
+生成物の確認:
+
+```bash
+pmtiles show output/sample/sample.pmtiles
+#   tile type: webp
+#   min zoom: 9 / max zoom: 19
+#   center: (long: 138.383908, lat: 34.975052)   ← 経度が正しいこと
+```
+
+> **`center` の経度は必ず確認すること。** go-pmtiles は metadata に `center` が
+> 無いと `bounds` から計算するが、経度を E7 の int32 で先に加算するため、
+> 経度の和が 214.7483647 度を超えると桁があふれる。東経 138 度なら和は約 277 度で
+> 確実に該当し、center が -76 度付近（北米東岸沖）に化ける。
+> このパイプラインは `tools/mbtiles_meta.py` で `center` を明示して回避している。
+
 ## ディレクトリ構成
 
 ```
@@ -251,14 +317,19 @@ Step 2 で `gdalwarp -srcnodata <色> -dstalpha` によりアルファバンド�
 │   ├── build_mesh_index.py   … 図郭索引ベクトルタイル → 図郭リスト
 │   ├── fetch_meshes.py       … 図郭 ZIP の並列取得・平置き展開
 │   ├── inspect_inputs.py     … 入力検査・最大ZL算出
-│   └── make_tilejson.py      … TileJSON 生成
+│   ├── make_tilejson.py      … TileJSON 生成
+│   ├── mbtiles_meta.py       … PMTiles 変換前の metadata 補正
+│   └── serve_range.py        … HTTP Range 対応の静的サーバ
 └── viewer/
-    └── index.html            … MapLibre プレビュー
+    └── index.html            … MapLibre プレビュー（XYZ / PMTiles 両対応）
 ```
 
 ## 参考
 
 - [GDAL: gdal2tiles](https://gdal.org/en/stable/programs/gdal2tiles.html)
 - [GDAL: gdalwarp](https://gdal.org/en/stable/programs/gdalwarp.html) / [gdalbuildvrt](https://gdal.org/en/stable/programs/gdalbuildvrt.html)
+- [GDAL: MBTiles ドライバ](https://gdal.org/en/stable/drivers/raster/mbtiles.html)
 - [TileJSON 2.2.0 仕様](https://github.com/mapbox/tilejson-spec/tree/master/2.2.0)
+- [PMTiles v3 仕様](https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md)
+- [go-pmtiles CLI](https://docs.protomaps.com/pmtiles/cli) / [rio-mbtiles](https://github.com/mapbox/rio-mbtiles)
 - [国土地理院 地理院タイル一覧](https://maps.gsi.go.jp/development/ichiran.html)

@@ -6,6 +6,8 @@
   <title>航空写真タイル プレビュー</title>
   <link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet" />
   <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <!-- TILE_OUTPUT="pmtiles" のときだけ使う（グローバル名は pmtiles） -->
+  <script src="https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js"></script>
   <style>
     html, body { margin: 0; height: 100%; }
     #map { position: absolute; inset: 0; }
@@ -23,20 +25,40 @@
   <div id="map"></div>
   <div id="info"><strong>読み込み中…</strong></div>
   <script>
-    const TILEJSON_URL = 'tiles/tiles.json';
+    // PMTiles は $WORK_DIR 直下、XYZ ディレクトリは tiles/ 配下に置かれる
+    const TILEJSON_CANDIDATES = ['tiles.json', 'tiles/tiles.json'];
 
     (async () => {
       const info = document.getElementById('info');
-      let tj;
-      try {
-        tj = await (await fetch(TILEJSON_URL)).json();
-      } catch (e) {
-        info.innerHTML = `<strong>tiles.json を読み込めません</strong><br>${e}`;
+
+      let tj = null;
+      for (const url of TILEJSON_CANDIDATES) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) { tj = await res.json(); break; }
+        } catch (e) { /* 次の候補を試す */ }
+      }
+      if (!tj) {
+        info.innerHTML = `<strong>tiles.json を読み込めません</strong><br>`
+          + `探索した場所: ${TILEJSON_CANDIDATES.join(' , ')}`;
         return;
       }
 
       // TileJSON の tiles[] が本番URLの場合でもローカル確認できるよう相対パスに寄せる
-      const localTiles = [`tiles/{z}/{x}/{y}.${tj.format || 'webp'}`];
+      const declared = tj.tiles?.[0] ?? '';
+      const isPmtiles = declared.startsWith('pmtiles://');
+      let localTiles;
+
+      if (isPmtiles) {
+        maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
+        // pmtiles.js はアーカイブの絶対 URL を要求するため location 基準で解決する
+        const suffix = '/{z}/{x}/{y}';
+        let archive = declared.slice('pmtiles://'.length);
+        if (archive.endsWith(suffix)) archive = archive.slice(0, -suffix.length);
+        localTiles = [`pmtiles://${new URL(archive, location.href).href}${suffix}`];
+      } else {
+        localTiles = [`tiles/{z}/{x}/{y}.${tj.format || 'webp'}`];
+      }
 
       const map = new maplibregl.Map({
         container: 'map',
@@ -80,6 +102,7 @@
         info.innerHTML = `<strong>${tj.name ?? '航空写真タイル'}</strong>
           <dl>
             <dt>形式</dt><dd>${tj.format ?? '-'}</dd>
+            <dt>配信</dt><dd>${isPmtiles ? 'PMTiles' : 'XYZ'}</dd>
             <dt>ZL</dt><dd>${tj.minzoom}–${tj.maxzoom}</dd>
             <dt>現在のZ</dt><dd>${map.getZoom().toFixed(2)}</dd>
           </dl>`;
