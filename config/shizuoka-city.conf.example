@@ -4,7 +4,9 @@
 # 図郭単位の ZIP を一括ダウンロードしてタイル化する。
 #
 #   出典: 静岡県（VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ）
-#   ライセンス: Open Data Commons Open Database License (ODbL)
+#   ライセンス: CC BY 4.0 / ODbL のデュアルライセンス
+#               ラスタータイルは ODbL でいう Produced Work にあたり Share-Alike は
+#               及ばないが、表記が単純な CC BY 4.0 に拠っている
 #   カタログ: https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw
 #
 # データ諸元（Step 1 の検査結果）:
@@ -80,7 +82,7 @@ RESAMPLING="average"
 
 # --- 配信メタデータ -----------------------------------------------------------
 
-ATTRIBUTION="<a href=\"https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw\">静岡県（VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ）</a> (ODbL)"
+ATTRIBUTION="出典: <a href=\"https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw\">静岡県「VIRTUAL SHIZUOKA 静岡県 中・西部 点群データ」</a>（<a href=\"https://creativecommons.org/licenses/by/4.0/deed.ja\">CC BY 4.0</a>）を加工して作成"
 TILE_URL_TEMPLATE=""
 
 # --- 実行環境 -----------------------------------------------------------------
