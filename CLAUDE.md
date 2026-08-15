@@ -33,7 +33,8 @@ README のドキュメント表からリンクされていることを確認す�
 | `tools/fetch_meshes.py` | 図郭 ZIP の並列取得・平置き展開 |
 | `tools/inspect_inputs.py` | 入力検査・推奨最大ZL算出（stdlib + `osgeo` のみ） |
 | `tools/make_tilejson.py` | TileJSON 生成 |
-| `tools/mbtiles_meta.py` | PMTiles 変換前の MBTiles metadata 補正（stdlib のみ） |
+| `tools/dir_to_pmtiles.py` | タイルディレクトリ → PMTiles 直接書き出し（`pmtiles` パッケージ） |
+| `tools/mbtiles_meta.py` | PMTiles 変換前の MBTiles metadata 補正（rio 経路のみ・stdlib） |
 | `tools/check_tiles.py` | 生成タイルの抜き取り検査（不透明な黒の混入を検出） |
 | `tools/serve_range.py` | HTTP Range 対応の静的サーバ（PMTiles プレビュー用・stdlib のみ） |
 | `viewer/` | MapLibre ビューワ（Vite + TypeScript）。`npm install && npm run build` が必要 |
@@ -78,11 +79,24 @@ README のドキュメント表からリンクされていることを確認す�
   Step 5 は設定ではなく `tiles_meta.json` の `output` を見て分岐する
   （設定を後から変えると実体と食い違うため）。
 - **PMTiles の作り方（`PMTILES_VIA`）**: `gdal2tiles`（既定）と `rio-mbtiles` の 2 経路。
-  どちらも最後は MBTiles を経由する（`pmtiles convert` の入力は MBTiles のみ）。
   **既定が gdal2tiles なのは実測で 2.7 倍速いから**（400図郭で 422秒 対 1,133秒）。
   gdal2tiles は最大ZLを作ってからピラミッドを縮小で積むが、rio-mbtiles は ZL ごとに
   元データから warp し直すため低ZLが重い。代償として中間の XYZ ディレクトリ
   （大量の小ファイル）を一度作る。成果物は両経路で同一。
+- **既定の経路は MBTiles を経由しない**（`tools/dir_to_pmtiles.py` が直接書き出す）。
+  以前は mb-util → `pmtiles convert` だったが、中間の SQLite は convert の入力を
+  作るためだけのもので、mb-util の `VACUUM`（直後に捨てるファイルを整理するだけ）と
+  convert（入れたものを読み直すだけ）が丸ごと無駄だった。
+  本番 366,827 枚で **65分30秒 → 22分16秒**。出力はバイト単位で同一
+  （全11ZLから2,475枚を抽出して相違ゼロ）。`rio-mbtiles` 経路は従来どおり
+  MBTiles を経由するため `mbtiles_meta.py` と go-pmtiles が要る。
+- **`pmtiles.Writer` は tileid（ヒルベルト順）の昇順で書くこと**。順不同でも
+  `finalize()` がエントリを並べ替えるので読めるが、タイル本体の並びは書いた順の
+  ままなので `clustered=false` になり範囲リクエストの局所性が落ちる。
+  重複排除と run-length は Writer 側が持っているので自前実装は不要。
+  タイル本体は一時ファイル（`TMPDIR`）に溜めてから出力へコピーされるため、
+  出力と同じ容量が `TMPDIR` に要る（WSL2 の既定 `/tmp` は ext4 なので drvfs への
+  書き込みは 1 回で済む）。
 - **生成後は必ず抜き取り検査する（`tools/check_tiles.py`）**。Step 4 が自動で呼ぶ。
   「RGB=0 かつ アルファ=255」の画素割合を測り、2% を超えたら警告する。
   速度だけ測って正しさを見ずに本番を流し、4 時間かけて不良品を作った経緯がある。
@@ -307,8 +321,10 @@ QGIS で開くまで気付けなかった状態から、流し終わった時点
   | Step 1 検査（8,844ファイル） | 17 分 |
   | Step 3 VRT 作成 | 3 分 |
   | Step 4 gdal2tiles（366,827枚 / 7,555 MB） | 1 時間52分 |
-  | Step 4 mb-util | 約 50 分 |
-  | Step 4 `pmtiles convert` | 約 10 分 |
+  | Step 4 PMTiles 書き出し | 22 分16秒 |
+
+  旧経路（mb-util 51分47秒 + `pmtiles convert` 13分43秒 = 65分30秒）を
+  同じタイルディレクトリで測り直した結果が上の 22分16秒。43分14秒の削減。
 
   中間の XYZ ディレクトリ 366,827 ファイルの削除に **10 分 26 秒**かかる（drvfs）。
   ファイル数が多いと削除も進捗確認（`du`）も重く、`du -sh` はタイムアウトする。

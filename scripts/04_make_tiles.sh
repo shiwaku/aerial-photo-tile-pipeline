@@ -2,7 +2,9 @@
 # Step 4: ラスタータイルを生成する。
 #
 #   TILE_OUTPUT="dir"     … gdal2tiles で XYZ ディレクトリを作る（既定）
-#   TILE_OUTPUT="pmtiles" … rio-mbtiles で MBTiles を作り PMTiles に変換する
+#   TILE_OUTPUT="pmtiles" … PMTILES_VIA で作り方が変わる
+#       gdal2tiles（既定） … XYZ を作ってから PMTiles を直接書き出す
+#       rio-mbtiles       … MBTiles を作り pmtiles convert で変換する
 #
 # Usage: scripts/04_make_tiles.sh config/<name>.conf
 
@@ -132,9 +134,10 @@ EOF
 }
 
 # =============================================================================
-# PMTiles 共通: MBTiles の metadata を整えてから pmtiles convert する
+# PMTiles 経路B 用: MBTiles の metadata を整えてから pmtiles convert する
 # =============================================================================
 # 引数で受けた MBTiles を PMTiles にする。tiles_meta.json もここで書く。
+# 経路A（既定）は MBTiles を作らないのでこの関数を通らない。
 finalize_pmtiles() {
   local tile_count_hint="$1"
 
@@ -182,23 +185,56 @@ EOF
 }
 
 # =============================================================================
-# PMTiles 経路A（既定）: gdal2tiles → mb-util → pmtiles convert
+# PMTiles 経路A（既定）: gdal2tiles → PMTiles 直接書き出し
 # =============================================================================
 # 実測でこちらが速い。gdal2tiles は最大ZLを作ってからピラミッドを縮小で積むが、
 # rio-mbtiles は ZL ごとに元データから warp し直すため低ZLが重くなる。
 # 400図郭での実測: 経路A 422秒 / 経路B 1,133秒（成果物はどちらも 325MB）。
 # 代償として中間の XYZ ディレクトリ（大量の小ファイル）を一度作る。
+#
+# 以前は mb-util で MBTiles を作ってから pmtiles convert していた。中間の SQLite は
+# convert の入力を作るためだけに存在し、mb-util の VACUUM（捨てるファイルを整理する
+# だけ）と convert（一度入れたものを読み直すだけ）が丸ごと無駄だった。
+# 本番 366,827 枚での実測: 65分30秒 → 22分16秒。出力はバイト単位で同一
+# （全11ZLから2,475枚を抽出して相違ゼロ）。mb-util への依存も消えた。
 make_tiles_pmtiles_via_gdal2tiles() {
-  require_cmd mb-util pmtiles python3
+  require_cmd python3
 
   generate_xyz_tiles
 
-  # mb-util は出力が既存だと失敗する
-  rm -f "$MBTILES_FILE"
-  log "MBTiles へ取り込み中（mb-util）…"
-  mb-util --image_format="$TILE_FORMAT" --scheme=xyz "$TILES_DIR" "$MBTILES_FILE"
+  local pm_tile_count pm_unique_tiles pm_source_bytes pm_bytes
+  local pm_min_zoom pm_max_zoom pm_zoom_levels pm_center pm_bounds
+  local pm_clustered pm_elapsed
 
-  finalize_pmtiles "$xyz_tile_count"
+  log "PMTiles へ直接書き出し中…"
+  rm -f "$PMTILES_FILE"
+  eval "$(python3 "$REPO_ROOT/tools/dir_to_pmtiles.py" \
+    --tiles-dir "$TILES_DIR" \
+    --output "$PMTILES_FILE" \
+    --format "$TILE_FORMAT" \
+    --name "$DATASET_NAME" \
+    --description "$DATASET_NAME" \
+    --attribution "$ATTRIBUTION" \
+    --center-zoom "$MIN_ZOOM")"
+
+  log "PMTiles 生成完了: ${pm_tile_count} 枚 / ZL ${pm_zoom_levels} / $(awk "BEGIN{printf \"%.1f\", $pm_bytes/1024/1024}") MB（${pm_elapsed} 秒）→ $PMTILES_FILE"
+  log "center=${pm_center} を明示（go-pmtiles の桁あふれ問題と同じ轍を踏まないため）"
+  [ "$pm_clustered" = "true" ] || \
+    warn "clustered=false になりました。範囲リクエストの局所性が落ちます"
+
+  cat > "$WORK_DIR/tiles_meta.json" <<EOF
+{
+  "dataset_id": "$DATASET_ID",
+  "output": "pmtiles",
+  "via": "$PMTILES_VIA",
+  "pmtiles_file": "$(basename "$PMTILES_FILE")",
+  "min_zoom": $pm_min_zoom,
+  "max_zoom": $pm_max_zoom,
+  "format": "$TILE_FORMAT",
+  "tile_count": $pm_tile_count,
+  "total_bytes": $pm_bytes
+}
+EOF
 
   if [ "$PMTILES_KEEP_TILES" = "true" ]; then
     log "中間の XYZ ディレクトリを残しました（PMTILES_KEEP_TILES=false で削除）: $TILES_DIR"

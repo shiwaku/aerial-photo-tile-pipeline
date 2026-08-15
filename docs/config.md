@@ -60,7 +60,7 @@ JGD2011 平面直角座標系は 第1系 = EPSG:6669 〜 第19系 = EPSG:6687（
 |---|---|---|
 | `PMTILES_NAME` | （空 → `DATASET_ID`） | 成果物のファイル名（拡張子なし）。`tiles.json` が指す名前も追従する |
 | `PMTILES_VIA` | `gdal2tiles` | PMTiles の作り方。`gdal2tiles`（速い）または `rio-mbtiles` |
-| `PMTILES_KEEP_MBTILES` | `true` | 変換後に中間 MBTiles を残すか（本番規模で数 GB） |
+| `PMTILES_KEEP_MBTILES` | `true` | 変換後に中間 MBTiles を残すか（本番規模で数 GB）。`PMTILES_VIA="rio-mbtiles"` のみ効く |
 | `PMTILES_KEEP_TILES` | `true` | 中間の XYZ ディレクトリを残すか（`PMTILES_VIA="gdal2tiles"` のみ。本番規模で数十万ファイル） |
 
 詳細は [PMTiles 出力](pmtiles.md)を参照してください。

@@ -55,10 +55,9 @@ TILE_OUTPUT="dir"
 
 # --- 以下は TILE_OUTPUT="pmtiles" のときだけ効く -------------------------------
 
-# PMTiles の作り方。どちらも最後は MBTiles を経由する
-# （pmtiles convert の入力は MBTiles のみのため）。
-#   gdal2tiles   … gdal2tiles → mb-util → pmtiles convert（既定・実測で2.7倍速い）
-#                  中間の XYZ ディレクトリを一度作る。要 mb-util
+# PMTiles の作り方。
+#   gdal2tiles   … gdal2tiles → PMTiles 直接書き出し（既定・実測で2.7倍速い）
+#                  中間の XYZ ディレクトリを一度作る。要 pmtiles（pip）
 #   rio-mbtiles  … rio mbtiles → pmtiles convert
 #                  中間ディレクトリを作らないが遅い。要 rio-mbtiles
 PMTILES_VIA="gdal2tiles"
@@ -70,6 +69,7 @@ PMTILES_VIA="gdal2tiles"
 PMTILES_NAME=""
 
 # 変換後に中間の MBTiles を残すか（本番規模では数GBになる）
+# PMTILES_VIA="rio-mbtiles" のときだけ効く（gdal2tiles 経路は MBTiles を作らない）
 PMTILES_KEEP_MBTILES="true"
 
 # 変換後に中間の XYZ ディレクトリを残すか（PMTILES_VIA="gdal2tiles" のときのみ）
