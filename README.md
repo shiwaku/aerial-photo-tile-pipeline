@@ -171,7 +171,8 @@ aerial-photo-tile-pipeline/
 │   ├── fetch_meshes.py        # 図郭 ZIP の並列取得・平置き展開
 │   ├── inspect_inputs.py      # 入力検査・最大 ZL 算出
 │   ├── make_tilejson.py       # TileJSON 生成
-│   ├── mbtiles_meta.py        # PMTiles 変換前の MBTiles metadata 補正
+│   ├── dir_to_pmtiles.py      # タイルディレクトリ → PMTiles 直接書き出し
+│   ├── mbtiles_meta.py        # MBTiles metadata 補正（rio-mbtiles 経路のみ）
 │   ├── check_tiles.py         # 生成タイルの抜き取り検査
 │   └── serve_range.py         # HTTP Range 対応の静的サーバ
 ├── viewer/                    # MapLibre ビューワ（Vite + TypeScript）
