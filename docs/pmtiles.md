@@ -15,14 +15,18 @@ PMTiles を選ぶ主な理由は**小さいファイルが大量にできない�
 
 | ツール | 用途 | 必要な経路 | 確認 |
 |---|---|---|---|
-| [go-pmtiles](https://github.com/protomaps/go-pmtiles) | MBTiles → PMTiles | 両方 | `pmtiles convert --help` |
-| [mbutil](https://github.com/mapbox/mbutil) | XYZ → MBTiles | `PMTILES_VIA="gdal2tiles"`（既定） | `mb-util --help` |
+| [pmtiles](https://pypi.org/project/pmtiles/) | PMTiles の直接書き出し | `PMTILES_VIA="gdal2tiles"`（既定） | `python3 -c "import pmtiles"` |
+| [go-pmtiles](https://github.com/protomaps/go-pmtiles) | MBTiles → PMTiles | `PMTILES_VIA="rio-mbtiles"` | `pmtiles convert --help` |
 | [rio-mbtiles](https://github.com/mapbox/rio-mbtiles) | MBTiles 生成 | `PMTILES_VIA="rio-mbtiles"` | `rio mbtiles --help` |
 
 ```bash
-pip install mbutil
-pip install rio-mbtiles && pip install "shapely>=2.0"   # ← rio 経路を使う場合のみ
+pip install pmtiles                                     # 既定の経路に必要
+pip install rio-mbtiles && pip install "shapely>=2.0"    # ← rio 経路を使う場合のみ
 ```
+
+`pmtiles` パッケージは依存ゼロの純 Python なので、`pip install` で他のパッケージを巻き込むことはありません（rio-mbtiles とは対照的）。
+
+なお go-pmtiles の `pmtiles` コマンドは既定の経路では不要ですが、生成物を確認する `pmtiles show` に使うので入れておくと便利です。
 
 ## 実行
 
@@ -30,7 +34,7 @@ pip install rio-mbtiles && pip install "shapely>=2.0"   # ← rio 経路を使�
 # 設定
 TILE_OUTPUT="pmtiles"
 PMTILES_VIA="gdal2tiles"      # または rio-mbtiles
-PMTILES_KEEP_MBTILES="true"   # 中間 MBTiles を残すか
+PMTILES_KEEP_MBTILES="true"   # 中間 MBTiles を残すか（rio-mbtiles 経路のみ）
 PMTILES_KEEP_TILES="true"     # 中間の XYZ ディレクトリを残すか
 
 # 実行（Step 1〜5 は共通）
@@ -66,24 +70,46 @@ PMTILES_NAME="aerial-photo"     # → output/shizuoka-city/aerial-photo.pmtiles
 
 ## 2 つの経路（`PMTILES_VIA`）
 
-**`pmtiles convert` の入力は MBTiles のみ**（公式 CLI ドキュメントおよび `pmtiles convert --help` で確認）で、タイルディレクトリからの直接変換口はありません。どちらの経路も最後は MBTiles を経由します。
-
 | | `"gdal2tiles"`（既定） | `"rio-mbtiles"` |
 |---|---|---|
-| 経路 | gdal2tiles → mb-util → convert | rio mbtiles → convert |
-| 中間生成物 | XYZ ディレクトリ（大量の小ファイル） | 無し |
-| 追加の依存 | `mb-util` | `rio-mbtiles` |
-
-400 図郭・ZL9-19・WebP 品質 85・8 並列での実測:
-
-| 工程 | 経路A: gdal2tiles | 経路B: rio-mbtiles |
-|---|---|---|
-| タイル生成 | 335 s | 1,093 s |
-| MBTiles 化（mb-util） | 85 s | （同上に含む） |
-| `pmtiles convert` | 2 s | 40 s |
-| **合計** | **422 s** | 1,133 s |
+| 経路 | gdal2tiles → PMTiles 直接書き出し | rio mbtiles → `pmtiles convert` |
+| 中間生成物 | XYZ ディレクトリ（大量の小ファイル） | MBTiles |
+| 追加の依存 | `pmtiles`（Python） | `rio-mbtiles` ＋ go-pmtiles |
 
 **既定が gdal2tiles なのは 2.7 倍速いからです。** gdal2tiles は最大 ZL を作ってからピラミッドを縮小で積みますが、rio-mbtiles は ZL ごとに元データから warp し直すため低 ZL が重くなります。rio-mbtiles の公式ドキュメントも "suited for small to medium (~1 GB) sized sources" と明記しています。成果物は両経路で同一でした（400 図郭でどちらも 325 MB）。
+
+`"rio-mbtiles"` は中間の XYZ ディレクトリを作らずに済むのが利点です。数十万の小ファイルを置く余裕が無い場合の選択肢として残しています。
+
+### なぜ MBTiles を経由しなくなったか
+
+`pmtiles convert`（go-pmtiles）の入力は MBTiles のみで、タイルディレクトリからの直接変換口はありません。そのため以前は `mb-util` で MBTiles を作ってから変換していましたが、**中間の SQLite は変換の入力を作るためだけに存在し、2 つの工程が丸ごと無駄でした**。
+
+- `mb-util` は無条件に `VACUUM` する。7.65 GB を丸ごと書き直すが、直後に捨てるファイルなので詰める意味がない（CLI に止めるオプションは無い。`--do_compression` はタイルの重複排除で別物）
+- `pmtiles convert` は、一度 SQLite に入れたものを読み直しているだけ
+
+PyPI の `pmtiles` パッケージの `Writer` はタイルを直接書けるので、SQLite を挟まなければどちらも消えます。本番 366,827 枚（7.5 GB）での実測:
+
+| 工程 | 旧（mb-util 経由） | 現行（直接書き出し） |
+|---|---|---|
+| 走査 | — | 9 s |
+| mb-util 挿入 | 1,420 s | — |
+| mb-util `VACUUM` | 1,687 s | — |
+| `pmtiles convert` | 823 s | — |
+| 直接書き出し | — | 1,326 s |
+| **合計** | **3,930 s（65分30秒）** | **1,336 s（22分16秒）** |
+
+**43 分 14 秒（66%）の削減**です。出力はバイト単位で同一であることを確認しています（全 11 ZL から 2,475 枚を抽出して相違ゼロ、`pmtiles show` の意味的項目もすべて一致）。
+
+削減の実体は「無駄な 2 工程が消えた」ことで、タイルの読み込み自体は 305 枚/秒と mb-util の 258 枚/秒に対して 18% しか速くありません。**ボトルネックは drvfs から小ファイルを読むこと**なので、入力を ext4 に置けばさらに縮む余地があります。
+
+### `Writer` を使ううえでの注意
+
+`pmtiles` 3.7.0 の実装を読んで確認した事実です。
+
+- **重複排除と run-length は Writer が持っている**（同一バイト列は 1 度だけ格納され、連続する同一タイルはまとめられる）。自前で行う必要はない
+- **tileid（ヒルベルト順）の昇順で書かないと `clustered` が false になる**。`finalize()` はエントリを並べ替えるがタイル本体の並びは書いた順のままなので、範囲リクエストの局所性が落ちる。`tools/dir_to_pmtiles.py` は並べ替えてから書いている
+- **タイル本体は一時ファイルに溜めてから出力へコピーされる**。`TMPDIR` に出力と同じ容量が必要になる。WSL2 では既定の `/tmp` が ext4 なので、drvfs への書き込みは 1 回で済む
+- center を渡さないと Writer が `bounds` から計算するが、**Python の int は任意精度なので go-pmtiles のような桁あふれは起きない**。それでも値を明示している
 
 ## 既知の落とし穴
 

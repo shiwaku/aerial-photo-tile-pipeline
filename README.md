@@ -123,10 +123,10 @@ cd viewer && npm install && npm run build && cd ..
 
 ## PMTiles で出力する
 
-`TILE_OUTPUT="pmtiles"` にすると、タイルを単一ファイルにまとめます。本番実測では 366,827 ファイルが 1 ファイル（約 7.5 GB）になりました。追加で [go-pmtiles](https://github.com/protomaps/go-pmtiles) と [mbutil](https://github.com/mapbox/mbutil) が必要です。
+`TILE_OUTPUT="pmtiles"` にすると、タイルを単一ファイルにまとめます。本番実測では 366,827 ファイルが 1 ファイル（約 7.5 GB）になりました。追加で [pmtiles](https://pypi.org/project/pmtiles/)（依存ゼロの純 Python）が必要です。
 
 ```bash
-pip install mbutil        # pmtiles convert の入力は MBTiles のみなので経由する
+pip install pmtiles
 
 # 設定に 1 行足すだけで、Step 1〜5 の流し方は同じ
 TILE_OUTPUT="pmtiles"
@@ -136,7 +136,7 @@ TILE_OUTPUT="pmtiles"
 pmtiles show output/sample/sample.pmtiles      # center の経度が正しいことを確認
 ```
 
-作り方は 2 経路あり、既定の `gdal2tiles` は実測で 2.7 倍速いほうです。経路の違い・`center` が壊れる既知の問題・rio-mbtiles の注意点は [PMTiles 出力](docs/pmtiles.md)を参照してください。
+既定の経路はタイルディレクトリから **PMTiles を直接書き出します**。以前は MBTiles を経由していましたが、その工程は変換の入力を作るためだけのもので、本番 366,827 枚で 65分30秒 → 22分16秒（**43 分の削減**）になりました。経路の違い・`center` が壊れる既知の問題・rio-mbtiles の注意点は [PMTiles 出力](docs/pmtiles.md)を参照してください。
 
 ## ドキュメント
 
@@ -171,7 +171,8 @@ aerial-photo-tile-pipeline/
 │   ├── fetch_meshes.py        # 図郭 ZIP の並列取得・平置き展開
 │   ├── inspect_inputs.py      # 入力検査・最大 ZL 算出
 │   ├── make_tilejson.py       # TileJSON 生成
-│   ├── mbtiles_meta.py        # PMTiles 変換前の MBTiles metadata 補正
+│   ├── dir_to_pmtiles.py      # タイルディレクトリ → PMTiles 直接書き出し
+│   ├── mbtiles_meta.py        # MBTiles metadata 補正（rio-mbtiles 経路のみ）
 │   ├── check_tiles.py         # 生成タイルの抜き取り検査
 │   └── serve_range.py         # HTTP Range 対応の静的サーバ
 ├── viewer/                    # MapLibre ビューワ（Vite + TypeScript）
