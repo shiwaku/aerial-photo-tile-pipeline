@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:pages": "tsc --noEmit && vite build --mode pages",
     "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist --nojekyll"
+    "deploy": "npm run build:pages && gh-pages -d dist --nojekyll"
   },
   "dependencies": {
     "maplibre-gl": "^5.15.0",
