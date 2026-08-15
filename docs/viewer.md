@@ -5,9 +5,10 @@
 ```bash
 cd viewer
 npm install
-npm run build        # → viewer/dist/
+npm run build        # → viewer/dist/（ローカルプレビュー用）
 npm run dev          # 開発サーバ（http://localhost:5173/）
-npm run deploy       # GitHub Pages へ（gh-pages）
+npm run build:pages  # GitHub Pages 用のビルド（.env.pages を読む）
+npm run deploy       # build:pages してから gh-pages へ publish
 ```
 
 ビルドしたら、パイプラインの設定を渡してローカルサーバを起動します。
@@ -60,12 +61,21 @@ TILE_URL_TEMPLATE="pmtiles://https://example.com/ortho/aerial-photo.pmtiles/{z}/
 
 ビューワを GitHub Pages に、タイルを別ホストに置く構成です。`vite.config.ts` の `base` はビルド時に `./` になるため、Pages のサブパス（`https://<user>.github.io/<repo>/`）でもそのまま動きます。
 
+TileJSON の URL は `viewer/.env.pages` に書いてあり、`npm run deploy` が読みます。デプロイのたびに環境変数を手で付ける必要はありません。
+
 ```bash
-cd viewer
-VITE_TILEJSON_URL=https://example.com/ortho/tiles.json npm run deploy
+# viewer/.env.pages
+VITE_TILEJSON_URL=https://example.com/ortho/tiles.json
 ```
 
-> **`npm run deploy` は内部で `npm run build` をやり直します。** 環境変数を付けたまま実行しないと TileJSON の URL が消え、公開後に白い地図になります。
+```bash
+cd viewer
+npm run deploy
+```
+
+> **`.env.pages` は `--mode pages` のビルドでだけ読まれます。** ローカルプレビュー用の `npm run build` は読まないため、`scripts/serve.sh` では従来どおりタイルと同一オリジンの `tiles.json` を相対で探します。両者を分けているのは、本番 URL を焼き込んだ `dist/` でローカルプレビューすると、手元のタイルではなく公開中のタイルを見てしまうためです。
+>
+> 逆に、**`.env.pages` に URL を書かずに `npm run deploy` すると、ビューワが `tiles.json` を相対で探して 404 になり、白い地図が公開されます。**
 
 配信ホスト側に必要な条件は 2 つです。
 
