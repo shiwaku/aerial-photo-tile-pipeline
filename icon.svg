@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="航空写真オルソ画像">
+  <rect width="512" height="512" rx="96" fill="#2a78d6"/>
+  <!-- 図郭に分割された正射画像を俯瞰した図 -->
+  <g opacity="0.95">
+    <rect x="96" y="128" width="104" height="104" fill="#e8f0fb"/>
+    <rect x="204" y="128" width="104" height="104" fill="#bcd6f4"/>
+    <rect x="312" y="128" width="104" height="104" fill="#e8f0fb"/>
+    <rect x="96" y="236" width="104" height="104" fill="#bcd6f4"/>
+    <rect x="204" y="236" width="104" height="104" fill="#e8f0fb"/>
+    <rect x="312" y="236" width="104" height="104" fill="#bcd6f4"/>
+    <rect x="96" y="344" width="104" height="40" fill="#e8f0fb"/>
+    <rect x="204" y="344" width="104" height="40" fill="#bcd6f4"/>
+  </g>
+  <!-- 撮影する航空機 -->
+  <path d="M256 60 L286 128 L256 114 L226 128 Z" fill="#ffffff"/>
+</svg>
