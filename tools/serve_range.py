@@ -52,6 +52,12 @@ class _RangeFile(io.RawIOBase):
 
 
 class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
+    # 既定は HTTP/1.0 でリクエストごとに TCP 接続を張り直す。PMTiles は
+    # ディレクトリ探索・タイル読み出しで 1 回の操作に何十〜何百もの Range
+    # リクエストを出すため、keep-alive が無いと接続確立のオーバーヘッドが
+    # 支配的になり描画が極端に遅くなる。
+    protocol_version = "HTTP/1.1"
+
     extensions_map = {
         **SimpleHTTPRequestHandler.extensions_map,
         ".pmtiles": "application/octet-stream",
