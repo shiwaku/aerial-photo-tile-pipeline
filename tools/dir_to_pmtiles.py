@@ -50,8 +50,8 @@ TILE_TYPES = {
 def scan_tiles(root: str, ext: str):
     """`{z}/{x}/{y}.{ext}` を走査して (z, x, y, path) を返す。
 
-    gdal2tiles は同じディレクトリに openlayers.html や tilemapresource.xml も
-    書く。Step 5 が tiles.json を置くこともある。数字でない名前は読み飛ばす。
+    タイル生成（gdal raster tile / gdal2tiles）はビューワを付けると同じディレクトリに
+    openlayers.html などを書く。Step 5 が tiles.json を置くこともある。数字でない名前は読み飛ばす。
 
     os.walk ではなく os.scandir を使う。drvfs 上では stat の回数が効くため。
     """

@@ -40,13 +40,13 @@ SRC_SRS="auto"           # 入力の CRS（例: EPSG:6676）。auto で座標値
 NODATA="auto"            # 図郭外の余白色（"255 255 255" 等）。auto で外周画素から判定、空で透過処理なし
 MIN_ZOOM="9"
 MAX_ZOOM="auto"          # auto = GSD から自動決定
-TILE_OUTPUT="dir"        # dir = XYZ ディレクトリ（gdal2tiles） / pmtiles = 単一ファイル（rio-mbtiles + pmtiles）
+TILE_OUTPUT="dir"        # dir = XYZ ディレクトリ（gdal raster tile） / pmtiles = 単一ファイル（rio-mbtiles + pmtiles）
 TILE_FORMAT="webp"       # webp | png
 WEBP_QUALITY="85"        # 非可逆の品質。lossless にすると可逆
 RESAMPLING="average"
-RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal2tiles -e）
+RESUME="false"           # true で既存タイルを残し不足分のみ生成（gdal raster tile --resume）
 PMTILES_NAME=""              # PMTiles / MBTiles のファイル名（拡張子なし）。空なら DATASET_ID
-PMTILES_VIA="gdal2tiles"     # pmtiles の作り方: gdal2tiles（速い・既定） | rio-mbtiles
+PMTILES_VIA="gdal2tiles"     # pmtiles の作り方: gdal2tiles（速い・既定。XYZ 経由） | rio-mbtiles
 PMTILES_KEEP_MBTILES="true"  # PMTiles 変換後に中間 MBTiles を残すか
 PMTILES_KEEP_TILES="true"    # PMTILES_VIA=gdal2tiles のとき中間の XYZ ディレクトリを残すか
 JOBS=""                  # 並列数。空なら nproc

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Step 4: ラスタータイルを生成する。
 #
-#   TILE_OUTPUT="dir"     … gdal2tiles で XYZ ディレクトリを作る（既定）
+#   TILE_OUTPUT="dir"     … XYZ ディレクトリを作る（既定）
 #   TILE_OUTPUT="pmtiles" … PMTILES_VIA で作り方が変わる
 #       gdal2tiles（既定） … XYZ を作ってから PMTiles を直接書き出す
+#                           （名前は互換のため据え置き。タイル生成は gdal raster tile）
 #       rio-mbtiles       … MBTiles を作り pmtiles convert で変換する
 #
 # Usage: scripts/04_make_tiles.sh config/<name>.conf
@@ -35,59 +36,83 @@ src_srs="$(resolve_srs)"
 nodata="$(resolve_nodata)"
 
 # =============================================================================
-# gdal2tiles で XYZ ディレクトリを生成する（dir 出力と PMTiles 経路の共通処理）
+# XYZ ディレクトリを生成する（dir 出力と PMTiles 経路の共通処理）
 # 生成枚数と総バイト数を xyz_tile_count / xyz_total_bytes に入れて返す。
+#
+# `gdal raster tile`（GDAL 3.11 以降）を直接呼ぶ。gdal2tiles は GDAL 3.13 で非推奨に
+# なり、既定で gdal raster tile に呼び替えられる（--legacy は GDAL 3.15 で削除予定。
+# https://gdal.org/en/stable/programs/gdal2tiles.html ）。その gdal2tiles は内部で
+# 同じ処理を Python から呼ぶが、その経路では --processes を渡しても 1 本でしか
+# 動かない（プロセス・スレッドとも 1、CPU 100%）。CLI は gdal 実行ファイルを子プロセスに
+# して並列化する（--parallel-method の既定は spawn 優先）が、Python 内からはそれが
+# できないためと見ている。静岡サンプル 25 図郭・ZL9-19・8 並列で 13.1 秒 → 5.9 秒。
+# 出力は gdal2tiles とほぼ同一（同サンプル 1,139 枚中 1,121 枚がバイト一致。残りは
+# 図郭の境目でわずかに違う。gdal raster tile 同士でも -j 1 と -j 8 で同程度の差が出る）。
 # =============================================================================
 generate_xyz_tiles() {
-  require_cmd gdal2tiles
+  gdal raster tile --help >/dev/null 2>&1 || \
+    die "gdal raster tile がありません。GDAL 3.11 以上が必要です（現在: $(gdalinfo --version 2>/dev/null || echo 不明)）"
 
   local driver_args=()
   case "$TILE_FORMAT" in
     webp)
-      driver_args=(--tiledriver=WEBP)
+      driver_args=(-f WEBP)
       if [ "$WEBP_QUALITY" = "lossless" ]; then
-        driver_args+=(--webp-lossless)
+        driver_args+=(--co LOSSLESS=YES)
         log "出力形式: WebP（可逆）"
       else
-        driver_args+=(--webp-quality="$WEBP_QUALITY")
+        driver_args+=(--co QUALITY="$WEBP_QUALITY")
         log "出力形式: WebP（非可逆 品質$WEBP_QUALITY）"
       fi
       ;;
-    png) log "出力形式: PNG" ;;
+    png)
+      driver_args=(-f PNG)
+      log "出力形式: PNG"
+      ;;
     *)   die "TILE_FORMAT は webp または png を指定してください（現在: $TILE_FORMAT）" ;;
   esac
 
-  local nodata_args=()
+  local srcnodata=""
   if [ -z "$nodata" ]; then
     log "NoData: 透過処理なし"
   elif [ -d "$PREPARED_DIR" ]; then
     log "NoData: 前処理済みのアルファバンドを使用"
   else
-    nodata_args=(--srcnodata="${nodata// /,}")
-    log "NoData: gdal2tiles で ${nodata} を透過扱い"
+    srcnodata="${nodata// /,}"
+    log "NoData: タイル生成時に ${nodata} を透過扱い"
   fi
 
   local resume_args=()
   if [ "$RESUME" = "true" ]; then
-    resume_args=(-e)
+    resume_args=(--resume)
     log "再開モード: 既存タイルを残し不足分のみ生成"
   fi
 
   log "ZL範囲: $MIN_ZOOM-$max_zoom / CRS: $src_srs / 並列: $JOBS"
 
-  gdal2tiles \
+  # gdal raster tile には入力 CRS・NoData の指定が無いので、gdal2tiles が内部で
+  # やっていたのと同じ gdal.Translate で CRS と NoData を付けた VRT を挟む
+  local tile_input="$WORK_DIR/tile_input.vrt"
+  python3 -c "
+import sys
+from osgeo import gdal
+gdal.UseExceptions()
+gdal.Translate(sys.argv[2], sys.argv[1], format='VRT', outputSRS=sys.argv[3],
+               noData=sys.argv[4] or None)
+" "$VRT_FILE" "$tile_input" "$src_srs" "$srcnodata"
+
+  gdal raster tile \
     "${resume_args[@]}" \
-    --s_srs "$src_srs" \
-    --xyz \
-    -z "${MIN_ZOOM}-${max_zoom}" \
-    --processes="$JOBS" \
-    --resampling="$RESAMPLING" \
-    -x \
-    -w none \
-    "${nodata_args[@]}" \
+    --min-zoom "$MIN_ZOOM" \
+    --max-zoom "$max_zoom" \
+    -j "$JOBS" \
+    -r "$RESAMPLING" \
+    --skip-blank \
+    --webviewer none \
     "${driver_args[@]}" \
-    "$VRT_FILE" \
+    "$tile_input" \
     "$TILES_DIR"
+  rm -f "$tile_input"
 
   local ext="$TILE_FORMAT"
   xyz_tile_count="$(find "$TILES_DIR" -name "*.${ext}" | wc -l)"
@@ -185,9 +210,9 @@ EOF
 }
 
 # =============================================================================
-# PMTiles 経路A（既定）: gdal2tiles → PMTiles 直接書き出し
+# PMTiles 経路A（既定）: XYZ タイル生成 → PMTiles 直接書き出し
 # =============================================================================
-# 実測でこちらが速い。gdal2tiles は最大ZLを作ってからピラミッドを縮小で積むが、
+# 実測でこちらが速い。gdal raster tile は最大ZLを作ってからピラミッドを縮小で積むが、
 # rio-mbtiles は ZL ごとに元データから warp し直すため低ZLが重くなる。
 # 400図郭での実測: 経路A 422秒 / 経路B 1,133秒（成果物はどちらも 325MB）。
 # 代償として中間の XYZ ディレクトリ（大量の小ファイル）を一度作る。

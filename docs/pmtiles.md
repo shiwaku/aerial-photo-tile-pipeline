@@ -72,11 +72,11 @@ PMTILES_NAME="aerial-photo"     # → output/shizuoka-city/aerial-photo.pmtiles
 
 | | `"gdal2tiles"`（既定） | `"rio-mbtiles"` |
 |---|---|---|
-| 経路 | gdal2tiles → PMTiles 直接書き出し | rio mbtiles → `pmtiles convert` |
+| 経路 | XYZ タイル生成（`gdal raster tile`）→ PMTiles 直接書き出し | rio mbtiles → `pmtiles convert` |
 | 中間生成物 | XYZ ディレクトリ（大量の小ファイル） | MBTiles |
 | 追加の依存 | `pmtiles`（Python） | `rio-mbtiles` ＋ go-pmtiles |
 
-**既定が gdal2tiles なのは 2.7 倍速いからです。** gdal2tiles は最大 ZL を作ってからピラミッドを縮小で積みますが、rio-mbtiles は ZL ごとに元データから warp し直すため低 ZL が重くなります。rio-mbtiles の公式ドキュメントも "suited for small to medium (~1 GB) sized sources" と明記しています。成果物は両経路で同一でした（400 図郭でどちらも 325 MB）。
+**既定が gdal2tiles（XYZ 経由）なのは 2.7 倍速いからです**（gdal2tiles の並列が効いていた頃の GDAL での計測）。設定値の名前は互換のため据え置いていますが、タイル生成には `gdal raster tile` を使います（理由は[設計メモ](design-notes.md#その他の実装上の決めごと)）。タイル生成は最大 ZL を作ってからピラミッドを縮小で積みますが、rio-mbtiles は ZL ごとに元データから warp し直すため低 ZL が重くなります。rio-mbtiles の公式ドキュメントも "suited for small to medium (~1 GB) sized sources" と明記しています。成果物は両経路で同一でした（400 図郭でどちらも 325 MB）。
 
 `"rio-mbtiles"` は中間の XYZ ディレクトリを作らずに済むのが利点です。数十万の小ファイルを置く余裕が無い場合の選択肢として残しています。
 
