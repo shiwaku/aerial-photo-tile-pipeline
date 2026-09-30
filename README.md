@@ -11,12 +11,15 @@
 
 ## クイックスタート
 
-必要なのは **GDAL 3.6 以上**と **Python 3.9 以上（GDAL バインディング付き）** だけです。Python の追加ライブラリは要りません。
+必要なのは **GDAL 3.6 以上**と **Python 3.9 以上（GDAL バインディング付き）** だけです。Python の追加ライブラリは要りません（PMTiles 出力のみ `pmtiles` が要ります）。GDAL 3.11 以降は `gdal raster tile` を使い、それより古い GDAL では `gdal2tiles` を使います。
 
 ```bash
-gdal2tiles --help | grep webp             # WEBP 対応の確認
+gdal --version                            # GDAL のバージョン
+gdal raster tile --help | grep -- --skip-blank || gdal2tiles --help | grep webp   # タイル生成の確認
 python3 -c "from osgeo import gdal"       # バインディングの確認
 ```
+
+手元に GDAL を用意しにくい場合は、同梱の `Dockerfile` を使えます（[Docker で実行する](#docker-で実行する)）。
 
 **1. データを用意する**
 
@@ -62,6 +65,20 @@ cd viewer && npm install && npm run build && cd ..
 
 背景地図の切替・不透明度スライダー・整備範囲へのフィットが使えます（[ビューワ](docs/viewer.md)）。
 
+### Docker で実行する
+
+GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile`（GDAL 3.13 + `pmtiles`）で Step 0〜5 を実行できます。リポジトリはイメージに含めず、実行時にマウントします。
+
+```bash
+docker build -t aerial-tile-pipeline .
+
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD":/work -w /work \
+  aerial-tile-pipeline ./scripts/run_pipeline.sh config/shizuoka-city.conf
+```
+
+`--user` を付けないと、`output/` 以下が root 所有で作られます。数時間かかる規模を macOS で流す場合は、スリープで止まらないよう `caffeinate -is docker run ...` のように包んでください。ビューワのビルドとプレビュー（`serve.sh`）はホスト側で実行します。
+
 ## 使い方
 
 各ステップは独立して実行でき、第 1 引数に設定ファイルを取ります。
@@ -80,7 +97,7 @@ cd viewer && npm install && npm run build && cd ..
 | `01_inspect.sh` | 入力を検査し、CRS・GSD・余白色・最大 ZL を判定する |
 | `02_prepare.sh` | GeoTIFF への統一・CRS 付与・図郭外の透過（不要なら自動スキップ） |
 | `03_build_vrt.sh` | モザイク結合（`gdalbuildvrt -addalpha`） |
-| `04_make_tiles.sh` | タイル生成（`gdal2tiles --xyz`）と生成後の抜き取り検査 |
+| `04_make_tiles.sh` | タイル生成（`gdal raster tile`。古い GDAL では `gdal2tiles --xyz`）と生成後の抜き取り検査 |
 | `05_make_tilejson.sh` | TileJSON 生成 |
 | `serve.sh` | ローカルプレビュー（`config` と `[port]` を取る。既定 8080） |
 
@@ -176,6 +193,7 @@ aerial-photo-tile-pipeline/
 │   ├── check_tiles.py         # 生成タイルの抜き取り検査
 │   └── serve_range.py         # HTTP Range 対応の静的サーバ
 ├── viewer/                    # MapLibre ビューワ（Vite + TypeScript）
+├── Dockerfile                 # 実行環境（GDAL 3.13 + pmtiles）
 └── LICENSE                    # Apache-2.0（対象はパイプラインとビューワ）
 ```
 

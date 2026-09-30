@@ -14,7 +14,7 @@
 
 ## 本番規模（静岡市 8,844 図郭）
 
-約 1,061 km²・GSD 0.20 m/px。PMTiles の gdal2tiles 経路・8 並列。
+約 1,061 km²・GSD 0.20 m/px。PMTiles の gdal2tiles 経路・8 並列。gdal2tiles の並列が効いていた頃の GDAL での計測です（GDAL 3.13 の gdal2tiles は並列が効かないため、今は `gdal raster tile` を使います。下の「タイル生成のコマンド」を参照）。
 
 | 工程 | 所要 |
 |---|---|
@@ -26,6 +26,17 @@
 中間の XYZ ディレクトリ 366,827 ファイルの削除に **10 分 26 秒**かかります（drvfs）。ファイル数が多いと削除も進捗確認（`du`）も重く、`du -sh` はタイムアウトします。これ自体が PMTiles を選ぶ理由の実例になっています。
 
 元データは約 75 GB でした。
+
+## タイル生成のコマンド（GDAL 3.13）
+
+静岡サンプル 25 図郭（`shizuoka-sample`）・ZL9-19・WebP 品質 85・8 並列。Docker（`ghcr.io/osgeo/gdal:ubuntu-small-3.13.2`、Apple Silicon 10 コア）。
+
+| コマンド | 所要 | CPU 時間 | 枚数 |
+|---|---|---|---|
+| `gdal2tiles --processes=8` | 13.1 秒 | 11.8 秒 | 1,139 枚 |
+| `gdal raster tile -j 8` | **5.9 秒** | 14.2 秒 | 1,139 枚 |
+
+GDAL 3.13 の `gdal2tiles` は内部で `gdal raster tile` を Python から呼びますが、その経路では `--processes` が効かず、プロセス・スレッドとも 1 本で動きます（CPU 時間 ≒ 所要時間）。入力が大きいほど（生成するタイルが多いほど）差が開きます。出力は 1,139 枚中 1,121 枚がバイト一致で、残り 18 枚は図郭の境目のタイルの画素がわずかに違うだけでした。
 
 ## ダウンロード（`FETCH_JOBS`）
 
