@@ -72,9 +72,12 @@ README のドキュメント表からリンクされていることを確認す�
 - **VRT 経由**: タイル生成（`gdal raster tile` / `gdal2tiles`）は 1 ファイルしか受け付けないため必ず VRT を作る。
   ファイル数が多くても引数長制限に当たらないよう `-input_file_list` を使う。
 - **タイル生成は `gdal raster tile` を直接呼ぶ**（使うオプションが揃っていない GDAL だけ
-  gdal2tiles）。GDAL 3.13 の gdal2tiles は内部で `gdal raster tile` を Python から
-  呼ぶが、その経路では `--processes` が効かず 1 本で動く（CPU 100%）。CLI は gdal
-  実行ファイルを子プロセスにして並列化するが、Python 内からはそれができないためと見ている。
+  gdal2tiles）。gdal2tiles は GDAL 3.13 で非推奨になり、既定で `gdal raster tile` に
+  呼び替えられる（従来実装の `--legacy` は GDAL 3.15 で削除予定。
+  https://gdal.org/en/stable/programs/gdal2tiles.html ）。そのうえ GDAL 3.13 の
+  gdal2tiles は内部で `gdal raster tile` を Python から呼ぶが、その経路では
+  `--processes` が効かず 1 本で動く（CPU 100%）。CLI は gdal 実行ファイルを
+  子プロセスにして並列化するが、Python 内からはそれができないためと見ている。
   静岡サンプル 25 図郭で 13.1 秒 → 5.9 秒で、入力が大きいほど差が開く。
   `--legacy`（Python の multiprocessing）は重いうえ GDAL 3.15 で削除予定なので使わない。
   gdal raster tile には入力 CRS・NoData の指定が無いので、gdal2tiles が内部でやるのと

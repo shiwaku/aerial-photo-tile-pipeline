@@ -39,7 +39,9 @@ nodata="$(resolve_nodata)"
 # XYZ ディレクトリを生成する（dir 出力と PMTiles 経路の共通処理）
 # 生成枚数と総バイト数を xyz_tile_count / xyz_total_bytes に入れて返す。
 #
-# `gdal raster tile`（GDAL 3.11 で追加）が使えればそれを直接呼ぶ。GDAL 3.13 の
+# `gdal raster tile`（GDAL 3.11 で追加）が使えればそれを直接呼ぶ。gdal2tiles は
+# GDAL 3.13 で非推奨になり、既定で gdal raster tile に呼び替えられる（--legacy は
+# GDAL 3.15 で削除予定。https://gdal.org/en/stable/programs/gdal2tiles.html ）。その
 # gdal2tiles は内部で同じ処理を Python から呼ぶが、その経路では --processes を
 # 渡しても 1 本でしか動かない（プロセス・スレッドとも 1、CPU 100%）。CLI は gdal
 # 実行ファイルを子プロセスにして並列化する（--parallel-method の既定は spawn 優先）が、
