@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Step 3: 複数ファイルを 1 つの仮想ファイル（VRT）にモザイク結合する。
-# タイル生成（gdal raster tile / gdal2tiles）は 1 ファイルしか受け付けないためこの手順が必要。
+# タイル生成（gdal raster tile）は 1 ファイルしか受け付けないためこの手順が必要。
 #
 # Usage: scripts/03_build_vrt.sh config/<name>.conf
 

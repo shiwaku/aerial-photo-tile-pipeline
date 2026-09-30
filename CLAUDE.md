@@ -69,11 +69,11 @@ README のドキュメント表からリンクされていることを確認す�
 - **gdalwarp / gdal_translate には `-of GTiff` を必ず付ける**。
   出力を `<名前>.part` に書いてから `mv` する方式のため、拡張子からドライバを
   推測できずエラーメッセージも出ずに失敗する。
-- **VRT 経由**: タイル生成（`gdal raster tile` / `gdal2tiles`）は 1 ファイルしか受け付けないため必ず VRT を作る。
+- **VRT 経由**: タイル生成（`gdal raster tile`）は 1 ファイルしか受け付けないため必ず VRT を作る。
   ファイル数が多くても引数長制限に当たらないよう `-input_file_list` を使う。
-- **タイル生成は `gdal raster tile` を直接呼ぶ**（使うオプションが揃っていない GDAL だけ
-  gdal2tiles）。gdal2tiles は GDAL 3.13 で非推奨になり、既定で `gdal raster tile` に
-  呼び替えられる（従来実装の `--legacy` は GDAL 3.15 で削除予定。
+- **タイル生成は `gdal raster tile` を直接呼ぶ**（そのため GDAL 3.11 以上が必須。
+  gdal2tiles への逃げ道は置かない）。gdal2tiles は GDAL 3.13 で非推奨になり、
+  既定で `gdal raster tile` に呼び替えられる（従来実装の `--legacy` は GDAL 3.15 で削除予定。
   https://gdal.org/en/stable/programs/gdal2tiles.html ）。そのうえ GDAL 3.13 の
   gdal2tiles は内部で `gdal raster tile` を Python から呼ぶが、その経路では
   `--processes` が効かず 1 本で動く（CPU 100%）。CLI は gdal 実行ファイルを

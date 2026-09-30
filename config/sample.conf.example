@@ -58,7 +58,7 @@ TILE_OUTPUT="dir"
 # PMTiles の作り方。
 #   gdal2tiles   … XYZ タイル生成 → PMTiles 直接書き出し（既定・実測で2.7倍速い）
 #                  中間の XYZ ディレクトリを一度作る。要 pmtiles（pip）
-#                  名前は互換のため据え置き。タイル生成は gdal raster tile を優先して使う
+#                  名前は互換のため据え置き。タイル生成は gdal raster tile
 #   rio-mbtiles  … rio mbtiles → pmtiles convert
 #                  中間ディレクトリを作らないが遅い。要 rio-mbtiles
 PMTILES_VIA="gdal2tiles"

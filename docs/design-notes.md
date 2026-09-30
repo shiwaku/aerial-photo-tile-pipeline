@@ -116,8 +116,8 @@ gdalinfo output/<id>/merge.vrt | grep '^Band '
 ## その他の実装上の決めごと
 
 - **`gdalwarp` / `gdal_translate` には `-of GTiff` を必ず付ける。** 出力を `<名前>.part` に書いてから `mv` する方式のため、拡張子からドライバを推測できず、エラーメッセージも出ずに失敗します。
-- **VRT を必ず経由する。** タイル生成（`gdal raster tile` / `gdal2tiles`）は 1 ファイルしか受け付けません。ファイル数が多くても引数長制限に当たらないよう `-input_file_list` を使います。
-- **タイル生成は `gdal raster tile` を直接呼ぶ。** [`gdal2tiles` は GDAL 3.13 で非推奨](https://gdal.org/en/stable/programs/gdal2tiles.html)になり、既定で `gdal raster tile` に呼び替えられます（従来実装の `--legacy` は GDAL 3.15 で削除予定）。そのうえ GDAL 3.13 の `gdal2tiles` は内部で `gdal raster tile` を Python から呼びますが、その経路では `--processes` が効かず 1 本で動きます（CPU 100%）。静岡サンプル 25 図郭・ZL9-19・8 並列で 13.1 秒 → 5.9 秒になり、入力が大きいほど差が開きます。`gdal raster tile` には入力 CRS・NoData の指定が無いので、gdal2tiles が内部でやるのと同じ `gdal.Translate` の VRT を挟みます。必要なオプション（`--skip-blank` / `--webviewer` / `--resume`）が無い GDAL では従来どおり `gdal2tiles` を使います。出力はほぼ同一で、図郭の境目のタイルだけ画素がわずかに違うことがあります（同サンプル 1,139 枚中 18 枚。`gdal raster tile` 同士でも並列数を変えると同程度の差が出ます）。
+- **VRT を必ず経由する。** タイル生成（`gdal raster tile`）は 1 ファイルしか受け付けません。ファイル数が多くても引数長制限に当たらないよう `-input_file_list` を使います。
+- **タイル生成は `gdal raster tile` を直接呼ぶ。** [`gdal2tiles` は GDAL 3.13 で非推奨](https://gdal.org/en/stable/programs/gdal2tiles.html)になり、既定で `gdal raster tile` に呼び替えられます（従来実装の `--legacy` は GDAL 3.15 で削除予定）。そのうえ GDAL 3.13 の `gdal2tiles` は内部で `gdal raster tile` を Python から呼びますが、その経路では `--processes` が効かず 1 本で動きます（CPU 100%）。静岡サンプル 25 図郭・ZL9-19・8 並列で 13.1 秒 → 5.9 秒になり、入力が大きいほど差が開きます。`gdal raster tile` には入力 CRS・NoData の指定が無いので、gdal2tiles が内部でやるのと同じ `gdal.Translate` の VRT を挟みます。`gdal raster tile` は GDAL 3.11 で入ったコマンドなので、GDAL 3.11 以上が必須です（使うオプションが 3.11.0 で揃っていることは確認済み）。コードを単純に保つため、gdal2tiles への逃げ道は置いていません。出力はほぼ同一で、図郭の境目のタイルだけ画素がわずかに違うことがあります（同サンプル 1,139 枚中 18 枚。`gdal raster tile` 同士でも並列数を変えると同程度の差が出ます）。
 - **`auto` の解決は Step 1 の検査結果を唯一の根拠にする。** 解決は `common.sh` の `resolve_srs()` / `resolve_nodata()` に集約し、各ステップがバラバラに判定しないこと（判定根拠がレポートと食い違うと追えなくなる）。
 - **ファイル名の空白・日本語に耐えるよう、入力列挙は `find -print0` + `mapfile -d ''` で NUL 区切りにしている。** この方針を崩さないこと。
 - **長時間ジョブの進捗を `print` で出す場合は `flush=True` を付ける。** ログにリダイレクトするとブロックバッファリングされ、数時間何も見えなくなります。

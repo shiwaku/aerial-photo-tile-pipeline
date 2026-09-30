@@ -11,11 +11,11 @@
 
 ## クイックスタート
 
-必要なのは **GDAL 3.6 以上**と **Python 3.9 以上（GDAL バインディング付き）** だけです。Python の追加ライブラリは要りません（PMTiles 出力のみ `pmtiles` が要ります）。GDAL 3.11 以降は `gdal raster tile` を使い、それより古い GDAL では `gdal2tiles` を使います。
+必要なのは **GDAL 3.11 以上**と **Python 3.9 以上（GDAL バインディング付き）** だけです。Python の追加ライブラリは要りません（PMTiles 出力のみ `pmtiles` が要ります）。タイル生成には GDAL 3.11 で入った `gdal raster tile` を使います（`gdal2tiles` は GDAL 3.13 で非推奨になりました）。
 
 ```bash
 gdal --version                            # GDAL のバージョン
-gdal raster tile --help | grep -- --skip-blank || gdal2tiles --help | grep webp   # タイル生成の確認
+gdal raster tile --help | grep -- --skip-blank   # タイル生成コマンドの確認
 python3 -c "from osgeo import gdal"       # バインディングの確認
 ```
 
@@ -97,7 +97,7 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
 | `01_inspect.sh` | 入力を検査し、CRS・GSD・余白色・最大 ZL を判定する |
 | `02_prepare.sh` | GeoTIFF への統一・CRS 付与・図郭外の透過（不要なら自動スキップ） |
 | `03_build_vrt.sh` | モザイク結合（`gdalbuildvrt -addalpha`） |
-| `04_make_tiles.sh` | タイル生成（`gdal raster tile`。古い GDAL では `gdal2tiles --xyz`）と生成後の抜き取り検査 |
+| `04_make_tiles.sh` | タイル生成（`gdal raster tile`）と生成後の抜き取り検査 |
 | `05_make_tilejson.sh` | TileJSON 生成 |
 | `serve.sh` | ローカルプレビュー（`config` と `[port]` を取る。既定 8080） |
 
@@ -211,7 +211,7 @@ aerial-photo-tile-pipeline/
 
 ## 参考
 
-- [GDAL: gdal2tiles](https://gdal.org/en/stable/programs/gdal2tiles.html) / [gdalwarp](https://gdal.org/en/stable/programs/gdalwarp.html) / [gdalbuildvrt](https://gdal.org/en/stable/programs/gdalbuildvrt.html)
+- [GDAL: gdal raster tile](https://gdal.org/en/stable/programs/gdal_raster_tile.html) / [gdalwarp](https://gdal.org/en/stable/programs/gdalwarp.html) / [gdalbuildvrt](https://gdal.org/en/stable/programs/gdalbuildvrt.html)
 - [TileJSON 2.2.0 仕様](https://github.com/mapbox/tilejson-spec/tree/master/2.2.0)
 - [PMTiles v3 仕様](https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md) / [go-pmtiles CLI](https://docs.protomaps.com/pmtiles/cli)
 - [国土地理院 地理院タイル一覧](https://maps.gsi.go.jp/development/ichiran.html)

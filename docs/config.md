@@ -43,7 +43,7 @@ JGD2011 平面直角座標系は 第1系 = EPSG:6669 〜 第19系 = EPSG:6687（
 | `TILE_FORMAT` | `webp` | `webp` または `png` |
 | `WEBP_QUALITY` | `85` | 非可逆の品質（1-100）。`lossless` と書くと可逆（`--webp-lossless`） |
 | `RESAMPLING` | `average` | 縮小時の再標本化方法（`average` / `near` / `bilinear` / `lanczos` など） |
-| `RESUME` | `false` | `true` で既存タイルを残し不足分のみ生成（`gdal raster tile --resume`。古い GDAL では `gdal2tiles -e`）。`TILE_OUTPUT="dir"` のみ |
+| `RESUME` | `false` | `true` で既存タイルを残し不足分のみ生成（`gdal raster tile --resume`）。`TILE_OUTPUT="dir"` のみ |
 
 写真系コンテンツは非可逆圧縮がよく効くため既定は WebP 品質 85 です。削減率は GSD や地物の密度に依存するので、案件ごとに設定を変えて Step 4 を回し、`output/<id>/tiles_meta.json` の `total_bytes` を比較して決めてください。
 
@@ -59,7 +59,7 @@ JGD2011 平面直角座標系は 第1系 = EPSG:6669 〜 第19系 = EPSG:6687（
 | 設定 | デフォルト | 説明 |
 |---|---|---|
 | `PMTILES_NAME` | （空 → `DATASET_ID`） | 成果物のファイル名（拡張子なし）。`tiles.json` が指す名前も追従する |
-| `PMTILES_VIA` | `gdal2tiles` | PMTiles の作り方。`gdal2tiles`（XYZ タイルを作ってから書き出す。速い）または `rio-mbtiles`。名前は互換のため据え置きで、タイル生成には `gdal raster tile` を優先して使う |
+| `PMTILES_VIA` | `gdal2tiles` | PMTiles の作り方。`gdal2tiles`（XYZ タイルを作ってから書き出す。速い）または `rio-mbtiles`。名前は互換のため据え置きで、タイル生成には `gdal raster tile` を使う |
 | `PMTILES_KEEP_MBTILES` | `true` | 変換後に中間 MBTiles を残すか（本番規模で数 GB）。`PMTILES_VIA="rio-mbtiles"` のみ効く |
 | `PMTILES_KEEP_TILES` | `true` | 中間の XYZ ディレクトリを残すか（`PMTILES_VIA="gdal2tiles"` のみ。本番規模で数十万ファイル） |
 
