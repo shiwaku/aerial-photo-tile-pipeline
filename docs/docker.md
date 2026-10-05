@@ -7,9 +7,9 @@
 | 環境 | ラッパー | 確認状況 |
 |---|---|---|
 | macOS（Apple Silicon / Intel） | `docker-run.sh` | Apple Silicon の実機で確認 |
-| Linux（amd64 / arm64） | `docker-run.sh` | CI（GitHub Actions）で PR ごとに確認 |
-| Windows + WSL2 | `docker-run.sh`（WSL の Ubuntu などから） | Linux と同じ仕組み。実機での確認は下の手順で |
-| Windows + PowerShell | `docker-run.ps1` | CI では構文のみ。実機での確認は下の手順で |
+| Linux（amd64 / arm64） | `docker-run.sh` | CI（GitHub Actions のクラウド上の Ubuntu）で PR ごとに selftest まで確認 |
+| Windows + WSL2 | `docker-run.sh`（WSL の Ubuntu などから） | **実機では未確認**。Linux と同じ仕組みなので動く見込み |
+| Windows + PowerShell | `docker-run.ps1` | **実機では未確認**。CI（クラウド上の Windows Server）で見ているのは改行と構文だけで、Docker は動かしていない |
 
 イメージは Linux コンテナなので、どの OS でも中身は同じように動きます。OS ごとに違うのは、ホストとコンテナのつなぎ方（ラッパー・マウント・改行コード・スリープ抑止）だけです。
 
