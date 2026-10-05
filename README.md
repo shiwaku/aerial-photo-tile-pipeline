@@ -67,7 +67,7 @@ cd viewer && npm install && npm run build && cd ..
 
 ### Docker で実行する
 
-GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile` を使えます。イメージに実行環境とスクリプト一式が入っているので、手元に要るのは Docker だけです。macOS・Linux（amd64 / arm64）・Windows（WSL2 / PowerShell）で動きます。
+GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile` を使えます。イメージに実行環境とスクリプト一式が入っているので、手元に要るのは Docker だけです。macOS・Linux（amd64 / arm64）で動きます。Windows（WSL2 / PowerShell）は試験的な対応で、実機ではまだ確認していません（#17）。
 
 ```bash
 # 公開イメージ ghcr.io/shiwaku/aerial-photo-tile-pipeline を自動で使う（手元で build したものがあればそちらを優先）
