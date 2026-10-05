@@ -17,6 +17,17 @@ Windows の実機確認は、Windows 11 Pro（10.0.26200）・Docker Desktop 4.3
 
 ## 1. イメージを用意する
 
+macOS と Windows では、先に Docker Desktop を起動しておいてください。起動していないと、`docker` コマンドもラッパーも `failed to connect to the docker API` で止まります（macOS では次のとおり）。
+
+```
+failed to connect to the docker API at unix:///Users/<user>/.docker/run/docker.sock; ... connect: no such file or directory
+```
+
+```bash
+open -a Docker   # macOS。Windows はスタートメニューから Docker Desktop を起動する
+docker info      # エラーが出なければ起動済み
+```
+
 公開イメージ（`ghcr.io/shiwaku/aerial-photo-tile-pipeline`、amd64 / arm64）があるので、ビルドしなくても使えます。手元に `aerial-tile-pipeline` が無ければ、ラッパーが自動でこちらを取得して使います。main の最新に追従する `latest` と、コミットごとの `sha-<短いハッシュ>` があります。
 
 ```bash
