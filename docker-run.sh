@@ -50,12 +50,15 @@ fi
 mkdir -p "$PROJECT_DIR/data" "$PROJECT_DIR/output" "$PROJECT_DIR/config"
 
 # 長時間ジョブがスリープで止まらないようにする。macOS は caffeinate、
-# systemd のある Linux は systemd-inhibit。WSL2 は Windows 側の電源設定に従う
+# systemd のある Linux は systemd-inhibit。WSL2 は Windows 側の電源設定に従う。
+# systemd-inhibit は権限が無いと「Access denied」で失敗する（SSH・CI など）ので、
+# 一度試して通ったときだけ使う
 wrap=()
+inhibit=(systemd-inhibit --what=sleep:idle --why="aerial-photo-tile-pipeline")
 if command -v caffeinate >/dev/null 2>&1; then
   wrap=(caffeinate -is)
-elif command -v systemd-inhibit >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-  wrap=(systemd-inhibit --what=sleep:idle --why="aerial-photo-tile-pipeline")
+elif command -v systemd-inhibit >/dev/null 2>&1 && "${inhibit[@]}" true >/dev/null 2>&1; then
+  wrap=("${inhibit[@]}")
 fi
 
 tty=()
