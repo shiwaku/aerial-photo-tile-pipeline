@@ -27,6 +27,8 @@ README のドキュメント表からリンクされていることを確認す�
 | `scripts/01_inspect.sh` … `05_make_tilejson.sh` | 各ステップ。第1引数に設定ファイルを取る |
 | `scripts/run_pipeline.sh` | Step 1〜5 の一括実行（`--from N` / `--to N` でステップ指定） |
 | `scripts/serve.sh` | ローカルプレビュー（`viewer/index.html` を配信） |
+| `docker-run.sh` | Docker で実行するホスト側ラッパー（作業フォルダの data/ output/ config/ をマウント） |
+| `Dockerfile` | 実行環境とスクリプト一式。`.dockerignore` で data/ output/ viewer/ を除外 |
 | `scripts/lib/common.sh` | ログ・設定ロード・依存チェック・入力列挙 |
 | `scripts/lib/prepare_one.sh` | 前処理ワーカー（`xargs -P` で並列実行される） |
 | `tools/build_mesh_index.py` | 図郭索引ベクトルタイル → 図郭リスト CSV |

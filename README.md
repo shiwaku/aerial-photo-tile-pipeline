@@ -67,17 +67,47 @@ cd viewer && npm install && npm run build && cd ..
 
 ### Docker で実行する
 
-GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile`（GDAL 3.13 + `pmtiles`）で Step 0〜5 を実行できます。リポジトリはイメージに含めず、実行時にマウントします。
+GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile` を使えます。イメージには実行環境（GDAL 3.13 + `pmtiles`）とスクリプト一式が入っているので、手元に要るのは Docker と作業フォルダだけです。macOS（Apple Silicon / Intel）・Linux・Windows（WSL2）で動きます。
 
 ```bash
-docker build -t aerial-tile-pipeline .
-
-docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$PWD":/work -w /work \
-  aerial-tile-pipeline ./scripts/run_pipeline.sh config/shizuoka-city.conf
+docker build -t aerial-tile-pipeline .   # リポジトリで 1 回だけ
 ```
 
-`--user` を付けないと、`output/` 以下が root 所有で作られます。数時間かかる規模を macOS で流す場合は、スリープで止まらないよう `caffeinate -is docker run ...` のように包んでください。ビューワのビルドとプレビュー（`serve.sh`）はホスト側で実行します。
+作業フォルダは次の形にします。リポジトリの中でも外でも構いません。
+
+```
+<作業フォルダ>/
+├── config/<name>.conf   # SRC_DIR="data/<name>" のように作業フォルダからの相対で書く
+├── data/<name>/         # 入力画像を平置き
+└── output/              # 出力先（無ければ作る）
+```
+
+作業フォルダで同梱の `docker-run.sh` を実行します。`config/` `data/` `output/` をコンテナにマウントし、`--user` で手元のユーザーとしてファイルを書きます。
+
+```bash
+cd <作業フォルダ>
+/path/to/aerial-photo-tile-pipeline/docker-run.sh config/<name>.conf             # Step 1〜5
+/path/to/aerial-photo-tile-pipeline/docker-run.sh config/<name>.conf --from 4    # 途中から
+/path/to/aerial-photo-tile-pipeline/docker-run.sh ./scripts/01_inspect.sh config/<name>.conf   # 個別ステップ
+```
+
+作業フォルダは環境変数 `PROJECT_DIR`、イメージ名は `IMAGE` で変えられます。長時間ジョブがスリープで止まらないよう、macOS では `caffeinate`、systemd のある Linux では `systemd-inhibit` で包みます。ビューワのビルドとプレビュー（`serve.sh`）はホスト側で実行します。
+
+S3 などにあるデータは、先に手元へ取得しておきます（例: `aws s3 sync s3://<bucket>/<prefix>/ data/<name>/`）。
+
+ラッパーを使わずに直接実行する場合は次のとおりです。`--user` を付けないと `output/` 以下が root 所有で作られます。
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD/data":/work/data -v "$PWD/output":/work/output -v "$PWD/config":/work/config:ro \
+  aerial-tile-pipeline ./scripts/run_pipeline.sh config/<name>.conf
+```
+
+**Docker Desktop で大きなデータを流すときの注意**
+
+- **メモリ**: コンテナは Docker Desktop に割り当てた範囲でしか使えません（Settings → Resources）。足りないとタイル生成が `EXIT=137` で落ちます。`JOBS` を下げるとメモリ消費も下がります。
+- **ディスク**: 入力に加えて中間ファイル（整形済み画像・XYZ ディレクトリ）の分が要ります。PMTiles の書き出しではコンテナ内の `/tmp` に成果物と同じ容量を一時的に使います。
+- **WSL2**: 作業フォルダは WSL 側の ext4（`~/` 以下など）に置いてください。`/mnt/c` など Windows 側に置くと入力の読み込みが大幅に遅くなります（[性能実測](docs/benchmarks.md#入力の置き場所drvfs--ext4)）。スリープは Windows 側の電源設定で止めてください。
 
 ## 使い方
 
@@ -193,7 +223,8 @@ aerial-photo-tile-pipeline/
 │   ├── check_tiles.py         # 生成タイルの抜き取り検査
 │   └── serve_range.py         # HTTP Range 対応の静的サーバ
 ├── viewer/                    # MapLibre ビューワ（Vite + TypeScript）
-├── Dockerfile                 # 実行環境（GDAL 3.13 + pmtiles）
+├── Dockerfile                 # 実行環境（GDAL 3.13 + pmtiles）とスクリプト一式
+├── docker-run.sh              # Docker で実行するホスト側ラッパー
 └── LICENSE                    # Apache-2.0（対象はパイプラインとビューワ）
 ```
 

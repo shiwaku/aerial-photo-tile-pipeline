@@ -1,4 +1,8 @@
-# イメージにはリポジトリを含めない（実行時にマウントする）。
+# イメージに入れるのはパイプラインの実行に要るものだけ。
 # data/ output/ は数十 GB になるのでビルドコンテキストに送らない
 *
 !Dockerfile
+!scripts/
+!tools/
+!config/*.conf.example
+**/__pycache__
