@@ -15,7 +15,11 @@ Windows の実機確認は、Windows 11 Pro（10.0.26200）・Docker Desktop 4.3
 
 イメージは Linux コンテナなので、どの OS でも中身は同じように動きます。OS ごとに違うのは、ホストとコンテナのつなぎ方（ラッパー・マウント・改行コード・スリープ抑止）だけです。
 
-## 1. イメージを用意する
+## 1. 準備する
+
+以降のコマンドは、上から順にそのままコピーして実行できるように書いています。リポジトリはホームフォルダ（`~/aerial-photo-tile-pipeline`）に置く前提です。
+
+### Docker Desktop を起動する
 
 macOS と Windows では、先に Docker Desktop を起動しておいてください。起動していないと、`docker` コマンドもラッパーも `failed to connect to the docker API` で止まります（macOS では次のとおり）。
 
@@ -28,7 +32,25 @@ open -a Docker   # macOS。Windows はスタートメニューから Docker Desk
 docker info      # エラーが出なければ起動済み
 ```
 
-公開イメージ（`ghcr.io/shiwaku/aerial-photo-tile-pipeline`、amd64 / arm64）があるので、ビルドしなくても使えます。手元に `aerial-tile-pipeline` が無ければ、ラッパーが自動でこちらを取得して使います。main の最新に追従する `latest` と、コミットごとの `sha-<短いハッシュ>` があります。
+### リポジトリを取得する
+
+実行用のラッパー（`docker-run.sh` / `docker-run.ps1`）を使うために、リポジトリをホームフォルダに clone します。
+
+```bash
+# macOS / Linux / WSL2
+cd ~
+git clone https://github.com/shiwaku/aerial-photo-tile-pipeline.git
+```
+
+```powershell
+# Windows PowerShell
+cd $HOME
+git clone https://github.com/shiwaku/aerial-photo-tile-pipeline.git
+```
+
+### イメージを用意する
+
+公開イメージ（`ghcr.io/shiwaku/aerial-photo-tile-pipeline`、amd64 / arm64）があるので、ビルドしなくても使えます。手元に `aerial-tile-pipeline` が無ければ、ラッパーが自動でこちらを取得して使います。main の最新に追従する `latest` と、コミットごとの `sha-<短いハッシュ>` があります。先に取得しておく場合は次のとおりです。
 
 ```bash
 docker pull ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest
@@ -36,57 +58,84 @@ docker pull ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest
 
 結果を再現したい場合は、`IMAGE=ghcr.io/shiwaku/aerial-photo-tile-pipeline:sha-xxxxxxx` のようにタグを固定してください。
 
-スクリプトを変更して試す場合は、手元でビルドします。手元のイメージがあればそちらが優先されます。
+スクリプトを変更して試す場合だけ、手元でビルドします。手元のイメージがあれば、公開イメージよりそちらが優先されます。
 
 ```bash
-git clone https://github.com/shiwaku/aerial-photo-tile-pipeline.git
-cd aerial-photo-tile-pipeline
+cd ~/aerial-photo-tile-pipeline
 docker build -t aerial-tile-pipeline .
 ```
 
-スクリプトはイメージに入るので、リポジトリを更新したら作り直してください（作り直さないと古いスクリプトのまま動きます）。
+スクリプトはイメージに入るので、リポジトリを更新したら作り直してください（作り直さないと古いスクリプトのまま動きます）。公開イメージに戻すときは `docker rmi aerial-tile-pipeline` で手元のイメージを消します。
 
 ## 2. 動作確認（selftest）
 
 新しい環境では、まず `selftest` で動くことを確かめてください。オープンデータ（[VIRTUAL SHIZUOKA 静岡県 中・西部](https://www.geospatial.jp/ckan/dataset/virtual-shizuoka-mw)のオルソ画像、CC BY 4.0）を 4 図郭（約 30 MB）だけ取得し、Step 0〜5 を通して PMTiles まで作ります。最後に、PMTiles ができているか、タイルがあるか、不透明な黒が混ざっていないか、PMTiles を読めるかを判定します。
 
-空のフォルダで実行します。
+空のフォルダ `~/aerial-selftest` を作って、その中で実行します。
 
 ```bash
 # macOS / Linux / WSL2
 mkdir ~/aerial-selftest && cd ~/aerial-selftest
-/path/to/aerial-photo-tile-pipeline/docker-run.sh selftest
+~/aerial-photo-tile-pipeline/docker-run.sh selftest
 ```
 
 ```powershell
 # Windows PowerShell
 mkdir $HOME\aerial-selftest; cd $HOME\aerial-selftest
-C:\path\to\aerial-photo-tile-pipeline\docker-run.ps1 selftest
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" selftest
 ```
 
 最後に `=== 動作確認: すべて OK ===` と出れば成功です。Apple Silicon の Mac で 20 秒前後です。図郭数は `selftest --count 12` のように変えられます。
 
 ## 3. 自分のデータで実行する
 
-作業フォルダは次の形にします。リポジトリの中でも外でも構いません。
+ここでは、作業フォルダを `~/aerial-work`、データセット名を `mydata` として説明します。別の名前にする場合は、以下のコマンドと設定ファイルの `mydata` をそろえて変えてください。作業フォルダは次の形になります。
 
 ```
-<作業フォルダ>/
-├── config/<name>.conf   # SRC_DIR="data/<name>" のように作業フォルダからの相対で書く
-├── data/<name>/         # 入力画像を平置き
-└── output/              # 出力先（無ければ作る）
+~/aerial-work/
+├── config/mydata.conf   # 設定ファイル
+├── data/mydata/         # 入力画像を平置き
+└── output/              # 出力先（ラッパーが作る）
 ```
 
-設定ファイルは `config/sample.conf.example` をコピーして作ります（[設定リファレンス](config.md)）。S3 などにあるデータは、先に手元へ取得しておきます（例: `aws s3 sync s3://<bucket>/<prefix>/ data/<name>/`）。
+作業フォルダを作り、設定ファイルのひな形をコピーします。
 
 ```bash
-cd <作業フォルダ>
-docker-run.sh config/<name>.conf                       # Step 1〜5
-docker-run.sh config/<name>.conf --from 4              # 途中から
-docker-run.sh ./scripts/01_inspect.sh config/<name>.conf   # 個別ステップ
+mkdir -p ~/aerial-work/config ~/aerial-work/data/mydata
+cd ~/aerial-work
+cp ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
 ```
 
-PowerShell では `docker-run.ps1` を同じ引数で使います。パスの区切りは `\` でも構いません。
+`config/mydata.conf` をエディタで開き、`DATASET_ID` と `SRC_DIR` の 2 行を次のように書き換えます。ほかの項目は `auto` のままで、実データから判定されます（[設定リファレンス](config.md)）。
+
+```bash
+DATASET_ID="mydata"
+SRC_DIR="data/mydata"
+```
+
+入力画像を `~/aerial-work/data/mydata/` に置きます。S3 にある場合は、AWS CLI で取得します。`s3://` 以降は、データを置いた場所（バケットとフォルダ）です。
+
+```bash
+aws s3 sync s3://バケット名/フォルダ/ data/mydata/
+```
+
+実行します。Step 1〜5 を通して流します。
+
+```bash
+cd ~/aerial-work
+~/aerial-photo-tile-pipeline/docker-run.sh config/mydata.conf
+```
+
+やり直すときは、途中のステップから始めたり、1 ステップだけ流したりできます。
+
+```bash
+~/aerial-photo-tile-pipeline/docker-run.sh config/mydata.conf --from 4                 # Step 4 から
+~/aerial-photo-tile-pipeline/docker-run.sh ./scripts/01_inspect.sh config/mydata.conf  # Step 1 だけ
+```
+
+PowerShell では、`& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" config\mydata.conf` のように同じ引数で使います。
+
+成果物は `~/aerial-work/output/mydata/` にできます。ひな形のままだとタイルのフォルダ（`tiles/`）を出力します。PMTiles 1 ファイルにしたい場合は、設定ファイルの `TILE_OUTPUT="dir"` を `TILE_OUTPUT="pmtiles"` に書き換えると、`mydata.pmtiles` ができます。判定の根拠は `output/mydata/inspect/report.md` に残るので、確認してください。
 
 作業フォルダは環境変数 `PROJECT_DIR`、イメージ名は `IMAGE` で変えられます。ビューワのビルドとプレビュー（`serve.sh`）はホスト側で実行します。
 
@@ -97,7 +146,7 @@ PowerShell では `docker-run.ps1` を同じ引数で使います。パスの区
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD/data":/work/data -v "$PWD/output":/work/output -v "$PWD/config":/work/config:ro \
-  aerial-tile-pipeline ./scripts/run_pipeline.sh config/<name>.conf
+  aerial-tile-pipeline ./scripts/run_pipeline.sh config/mydata.conf
 ```
 
 ## OS ごとの注意
@@ -114,7 +163,7 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
 ### Windows
 
 - **WSL2 を推奨します。** WSL の Ubuntu などで clone し、作業フォルダも WSL 側（`~/` 以下）に置いてください。Windows 側（`C:\` や `/mnt/c`）に置くと、入力の読み込みが大幅に遅くなります（[性能実測](benchmarks.md#入力の置き場所drvfs--ext4)）。Docker Desktop の Settings → Resources → WSL integration で、使うディストリビューションを有効にしてください。
-- **PowerShell の場合**、作業フォルダは Windows 側になるため、大きなデータでは WSL2 より遅くなります。`docker-run.ps1` は実行中だけスリープを抑止します。スクリプトの実行がブロックされる場合は、`powershell -ExecutionPolicy Bypass -File .\docker-run.ps1 selftest` のように起動してください。
+- **PowerShell の場合**、作業フォルダは Windows 側になるため、大きなデータでは WSL2 より遅くなります。`docker-run.ps1` は実行中だけスリープを抑止します。スクリプトの実行がブロックされる場合は、`powershell -ExecutionPolicy Bypass -File "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" selftest` のように起動してください。
 - **改行コード**: `.gitattributes` で、コンテナの中で読むファイル（`*.sh`・`*.py`・`Dockerfile` など）は Windows で clone しても LF のままになります。設定ファイル（`config/*.conf`）は CRLF で保存しても読めます。
 - WSL2 では、スリープは Windows 側の電源設定に従います。
 
