@@ -70,8 +70,9 @@ load_conf() {
   local conf="$1"
   [ -n "$conf" ] || die "設定ファイルを指定してください（例: config/sample.conf）"
   [ -f "$conf" ] || die "設定ファイルが見つかりません: $conf"
-  # shellcheck disable=SC1090
-  source "$conf"
+  # Windows のエディタで保存した CRLF の設定でも値に \r が混ざらないよう、CR を除いて読む
+  # （source <(...) は macOS 標準の bash 3.2 で中身を読まないため eval にする）
+  eval "$(tr -d '\r' < "$conf")"
 
   [ -n "$DATASET_ID" ] || die "DATASET_ID が未設定です: $conf"
   [ -n "$SRC_DIR" ]    || die "SRC_DIR が未設定です: $conf"

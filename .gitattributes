@@ -1,0 +1,9 @@
+# Windows で clone しても、コンテナの中で読むファイルの改行が CRLF に変わらないようにする。
+# CRLF になると、イメージの中で「/usr/bin/env: 'bash\r'」のように失敗する
+*.sh            text eol=lf
+*.py            text eol=lf
+*.conf.example  text eol=lf
+Dockerfile      text eol=lf
+.dockerignore   text eol=lf
+# PowerShell 5.1 向け。改行は CRLF、文字コードは BOM 付き UTF-8 で保存する
+*.ps1           text eol=crlf

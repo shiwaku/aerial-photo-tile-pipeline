@@ -67,47 +67,16 @@ cd viewer && npm install && npm run build && cd ..
 
 ### Docker で実行する
 
-GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile` を使えます。イメージには実行環境（GDAL 3.13 + `pmtiles`）とスクリプト一式が入っているので、手元に要るのは Docker と作業フォルダだけです。macOS（Apple Silicon / Intel）・Linux・Windows（WSL2）で動きます。
+GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライブラリが欠ける場合など）は、同梱の `Dockerfile` を使えます。イメージに実行環境とスクリプト一式が入っているので、手元に要るのは Docker だけです。macOS・Linux（amd64 / arm64）で動きます。Windows（WSL2 / PowerShell）は試験的な対応で、実機ではまだ確認していません（#17）。
 
 ```bash
-docker build -t aerial-tile-pipeline .   # リポジトリで 1 回だけ
+# 公開イメージ ghcr.io/shiwaku/aerial-photo-tile-pipeline を自動で使う（手元で build したものがあればそちらを優先）
+cd <作業フォルダ>                                  # config/ data/ output/ を置くフォルダ
+/path/to/aerial-photo-tile-pipeline/docker-run.sh selftest            # オープンデータで動作確認
+/path/to/aerial-photo-tile-pipeline/docker-run.sh config/<name>.conf  # 自分のデータで実行
 ```
 
-作業フォルダは次の形にします。リポジトリの中でも外でも構いません。
-
-```
-<作業フォルダ>/
-├── config/<name>.conf   # SRC_DIR="data/<name>" のように作業フォルダからの相対で書く
-├── data/<name>/         # 入力画像を平置き
-└── output/              # 出力先（無ければ作る）
-```
-
-作業フォルダで同梱の `docker-run.sh` を実行します。`config/` `data/` `output/` をコンテナにマウントし、`--user` で手元のユーザーとしてファイルを書きます。
-
-```bash
-cd <作業フォルダ>
-/path/to/aerial-photo-tile-pipeline/docker-run.sh config/<name>.conf             # Step 1〜5
-/path/to/aerial-photo-tile-pipeline/docker-run.sh config/<name>.conf --from 4    # 途中から
-/path/to/aerial-photo-tile-pipeline/docker-run.sh ./scripts/01_inspect.sh config/<name>.conf   # 個別ステップ
-```
-
-作業フォルダは環境変数 `PROJECT_DIR`、イメージ名は `IMAGE` で変えられます。長時間ジョブがスリープで止まらないよう、macOS では `caffeinate`、systemd のある Linux では `systemd-inhibit` で包みます。ビューワのビルドとプレビュー（`serve.sh`）はホスト側で実行します。
-
-S3 などにあるデータは、先に手元へ取得しておきます（例: `aws s3 sync s3://<bucket>/<prefix>/ data/<name>/`）。
-
-ラッパーを使わずに直接実行する場合は次のとおりです。`--user` を付けないと `output/` 以下が root 所有で作られます。
-
-```bash
-docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$PWD/data":/work/data -v "$PWD/output":/work/output -v "$PWD/config":/work/config:ro \
-  aerial-tile-pipeline ./scripts/run_pipeline.sh config/<name>.conf
-```
-
-**Docker Desktop で大きなデータを流すときの注意**
-
-- **メモリ**: コンテナは Docker Desktop に割り当てた範囲でしか使えません（Settings → Resources）。足りないとタイル生成が `EXIT=137` で落ちます。`JOBS` を下げるとメモリ消費も下がります。
-- **ディスク**: 入力に加えて中間ファイル（整形済み画像・XYZ ディレクトリ）の分が要ります。PMTiles の書き出しではコンテナ内の `/tmp` に成果物と同じ容量を一時的に使います。
-- **WSL2**: 作業フォルダは WSL 側の ext4（`~/` 以下など）に置いてください。`/mnt/c` など Windows 側に置くと入力の読み込みが大幅に遅くなります（[性能実測](docs/benchmarks.md#入力の置き場所drvfs--ext4)）。スリープは Windows 側の電源設定で止めてください。
+Windows の PowerShell では `docker-run.ps1` を同じ引数で使います。作業フォルダの形、OS ごとの注意、メモリ・ディスク・Docker Desktop のライセンスについては [Docker で実行する](docs/docker.md) を参照してください。
 
 ## 使い方
 
@@ -189,6 +158,7 @@ pmtiles show output/sample/sample.pmtiles      # center の経度が正しいこ
 
 | ドキュメント | 内容 |
 |---|---|
+| [Docker で実行する](docs/docker.md) | OS ごとの手順・動作確認（selftest）・メモリとディスクの注意 |
 | [設定リファレンス](docs/config.md) | 全設定項目・`auto` の判定ロジック・系番号が座標値だけでは決まらない理由 |
 | [図郭データの取得（Step 0）](docs/mesh-fetch.md) | 図郭索引ベクトルタイルの扱い・境界での絞り込み・実測メモ |
 | [PMTiles 出力](docs/pmtiles.md) | 2 経路の比較・`center` の桁あふれ・rio-mbtiles の罠 |
@@ -212,6 +182,7 @@ aerial-photo-tile-pipeline/
 │   ├── 00_build_mesh_list.sh … 05_make_tilejson.sh
 │   ├── run_pipeline.sh        # Step 1〜5 の一括実行
 │   ├── serve.sh               # ローカルプレビュー
+│   ├── selftest.sh            # オープンデータでの動作確認
 │   └── lib/                   # 共通関数（common.sh）と前処理ワーカー
 ├── tools/                     # Python ツール（stdlib + osgeo のみ）
 │   ├── build_mesh_index.py    # 図郭索引ベクトルタイル → 図郭リスト
@@ -224,7 +195,8 @@ aerial-photo-tile-pipeline/
 │   └── serve_range.py         # HTTP Range 対応の静的サーバ
 ├── viewer/                    # MapLibre ビューワ（Vite + TypeScript）
 ├── Dockerfile                 # 実行環境（GDAL 3.13 + pmtiles）とスクリプト一式
-├── docker-run.sh              # Docker で実行するホスト側ラッパー
+├── docker-run.sh              # Docker で実行するホスト側ラッパー（macOS / Linux / WSL2）
+├── docker-run.ps1             # 同（Windows PowerShell）
 └── LICENSE                    # Apache-2.0（対象はパイプラインとビューワ）
 ```
 

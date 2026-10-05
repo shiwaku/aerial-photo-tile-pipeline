@@ -1,0 +1,52 @@
+# Docker イメージのビルドと動作確認（docs/docker.md の「動作確認」と同じ手順）。
+# Linux は amd64 / arm64 の両方で、オープンデータを数図郭だけ通して PMTiles まで作る。
+# Windows ランナーは Linux コンテナを動かせないので、clone 後の改行と PowerShell 版の構文だけを見る。
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: シェルスクリプトの構文
+        run: for f in scripts/*.sh scripts/lib/*.sh docker-run.sh; do bash -n "$f"; done
+      - name: イメージのビルド
+        run: docker build -t aerial-tile-pipeline .
+      - name: 動作確認（docker-run.sh selftest）
+        run: |
+          mkdir -p "$RUNNER_TEMP/work" && cd "$RUNNER_TEMP/work"
+          "$GITHUB_WORKSPACE/docker-run.sh" selftest
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: clone 後もコンテナで読むファイルが LF のままか
+        shell: bash
+        run: |
+          bad=$(git ls-files --eol -- '*.sh' '*.py' '*.conf.example' Dockerfile | grep 'w/crlf' || true)
+          [ -z "$bad" ] || { echo "$bad"; exit 1; }
+      - name: docker-run.ps1 の構文（Windows PowerShell 5.1）
+        shell: powershell
+        run: |
+          $e = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\docker-run.ps1", [ref]$null, [ref]$e)
+          if ($e) { $e | ForEach-Object { $_.ToString() }; exit 1 }
+      - name: docker-run.ps1 の構文（PowerShell 7）
+        shell: pwsh
+        run: |
+          $e = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\docker-run.ps1", [ref]$null, [ref]$e)
+          if ($e) { $e | ForEach-Object { $_.ToString() }; exit 1 }
