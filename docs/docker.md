@@ -8,8 +8,10 @@
 |---|---|---|
 | macOS（Apple Silicon / Intel） | `docker-run.sh` | Apple Silicon の実機で確認 |
 | Linux（amd64 / arm64） | `docker-run.sh` | CI（GitHub Actions のクラウド上の Ubuntu）で PR ごとに selftest まで確認 |
-| Windows + WSL2 | `docker-run.sh`（WSL の Ubuntu などから） | **実機では未確認**。Linux と同じ仕組みなので動く見込み |
-| Windows + PowerShell | `docker-run.ps1` | **実機では未確認**。CI（クラウド上の Windows Server）で見ているのは改行と構文だけで、Docker は動かしていない |
+| Windows + WSL2 | `docker-run.sh`（WSL の Ubuntu などから） | 実機で確認（Ubuntu 24.04）。CI では見ていない |
+| Windows + PowerShell | `docker-run.ps1` | 実機で確認（Windows PowerShell 5.1 / PowerShell 7.6）。CI（クラウド上の Windows Server）で見ているのは改行と構文だけ |
+
+Windows の実機確認は、Windows 11 Pro（10.0.26200）・Docker Desktop 4.38.0・AMD Ryzen 7 5700X で行いました（#17）。selftest の所要は、WSL2 で 9 秒、PowerShell で 16〜19 秒です。
 
 イメージは Linux コンテナなので、どの OS でも中身は同じように動きます。OS ごとに違うのは、ホストとコンテナのつなぎ方（ラッパー・マウント・改行コード・スリープ抑止）だけです。
 
