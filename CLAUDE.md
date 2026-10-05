@@ -7,7 +7,7 @@ GeoTIFF / JPEG + ワールドファイルを入力に、検査 → 前処理 →
 タイル生成 → TileJSON を設定ファイル 1 枚で通す。
 
 `README.md` はクイックスタート中心。詳細は `docs/` に分けてある
-（`config.md` / `mesh-fetch.md` / `pmtiles.md` / `design-notes.md` / `benchmarks.md` / `viewer.md`）。
+（`docker.md` / `config.md` / `mesh-fetch.md` / `pmtiles.md` / `design-notes.md` / `benchmarks.md` / `viewer.md`）。
 設計判断を書き足すときは README ではなく該当する `docs/*.md` に足し、
 README のドキュメント表からリンクされていることを確認する。
 
@@ -27,7 +27,10 @@ README のドキュメント表からリンクされていることを確認す�
 | `scripts/01_inspect.sh` … `05_make_tilejson.sh` | 各ステップ。第1引数に設定ファイルを取る |
 | `scripts/run_pipeline.sh` | Step 1〜5 の一括実行（`--from N` / `--to N` でステップ指定） |
 | `scripts/serve.sh` | ローカルプレビュー（`viewer/index.html` を配信） |
-| `docker-run.sh` | Docker で実行するホスト側ラッパー（作業フォルダの data/ output/ config/ をマウント） |
+| `scripts/selftest.sh` | オープンデータ 4 図郭で Step 0〜5 を通して判定する動作確認。CI もこれを呼ぶ |
+| `docker-run.sh` / `docker-run.ps1` | Docker で実行するホスト側ラッパー（sh は macOS / Linux / WSL2、ps1 は Windows PowerShell）。作業フォルダの data/ output/ config/ をマウント |
+| `.github/workflows/ci.yml` | Linux amd64 / arm64 で selftest、Windows で改行と ps1 の構文を確認 |
+| `.github/workflows/publish.yml` | main に入るたびに amd64 / arm64 のイメージを GHCR に公開（`latest` と `sha-*`） |
 | `Dockerfile` | 実行環境とスクリプト一式。`.dockerignore` で data/ output/ viewer/ を除外 |
 | `scripts/lib/common.sh` | ログ・設定ロード・依存チェック・入力列挙 |
 | `scripts/lib/prepare_one.sh` | 前処理ワーカー（`xargs -P` で並列実行される） |
@@ -267,6 +270,11 @@ QGIS で開くまで気付けなかった状態から、流し終わった時点
 
 ## 開発時の注意
 
+- **改行コード**: コンテナで読むファイルは `.gitattributes` で LF に固定している。`docker-run.ps1` は
+  Windows PowerShell 5.1 が日本語を読めるよう **BOM 付き UTF-8・CRLF** で保存すること（BOM が無いと文字化けして構文エラーになる）。
+  設定ファイルは `load_conf` が CR を除いて読むので CRLF でもよい。
+- **macOS 標準の bash 3.2 でも動かすホスト側スクリプト**（`docker-run.sh`）では、`set -u` 下の空配列展開
+  （`${a[@]+"${a[@]}"}` で回避）と `source <(...)`（中身を読まない。`eval` を使う）に注意。
 - スクリプトは `set -euo pipefail` 前提。`common.sh` を `source` してから使う。
 - 設定値の既定は `common.sh` の冒頭にまとめてある。新しい設定を足す場合は
   そこに既定値を書き、`config/sample.conf.example` にコメント付きで追記する。
