@@ -71,12 +71,13 @@ GDAL を手元に入れにくい場合（macOS の Homebrew 版で依存ライ�
 
 ```bash
 # 公開イメージ ghcr.io/shiwaku/aerial-photo-tile-pipeline を自動で使う（手元で build したものがあればそちらを優先）
-cd <作業フォルダ>                                  # config/ data/ output/ を置くフォルダ
-/path/to/aerial-photo-tile-pipeline/docker-run.sh selftest            # オープンデータで動作確認
-/path/to/aerial-photo-tile-pipeline/docker-run.sh config/<name>.conf  # 自分のデータで実行
+cd ~
+git clone https://github.com/shiwaku/aerial-photo-tile-pipeline.git
+mkdir ~/aerial-selftest && cd ~/aerial-selftest
+~/aerial-photo-tile-pipeline/docker-run.sh selftest      # オープンデータで動作確認
 ```
 
-Windows の PowerShell では `docker-run.ps1` を同じ引数で使います。作業フォルダの形、OS ごとの注意、メモリ・ディスク・Docker Desktop のライセンスについては [Docker で実行する](docs/docker.md) を参照してください。
+自分のデータでの実行、Windows の PowerShell での使い方、作業フォルダの形、OS ごとの注意、メモリ・ディスク・Docker Desktop のライセンスについては [Docker で実行する](docs/docker.md) を参照してください。
 
 ## 使い方
 
