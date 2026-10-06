@@ -156,6 +156,40 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
   aerial-tile-pipeline ./scripts/run_pipeline.sh config/mydata.conf
 ```
 
+## 4. 公開イメージが更新されたら
+
+main が更新されると、公開イメージ `latest` も作り直されます。ただし、手元に一度取得したイメージは**自動では更新されません**。更新はリポジトリのコミット履歴か、[パッケージのページ](https://github.com/users/shiwaku/packages/container/package/aerial-photo-tile-pipeline)の更新日時で分かります。
+
+次の順で、手元を最新にしてから流し直します。
+
+```bash
+# 1. リポジトリを最新にする（ラッパーと手順書も変わることがあるため）
+git -C ~/aerial-photo-tile-pipeline pull
+
+# 2. 公開イメージを取り直す
+docker pull ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest
+
+# 3. 動作確認
+cd ~/aerial-selftest
+~/aerial-photo-tile-pipeline/docker-run.sh selftest
+```
+
+実行の最初に「公開イメージ ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest を使います」と出ることを確認してください。「手元でビルドしたイメージ aerial-tile-pipeline を使います」と出る場合は、更新されていない手元のビルドが優先されています。`docker rmi aerial-tile-pipeline` で消してからやり直してください。
+
+自分のデータは、前回の出力を消してから流し直します。Step 2（前処理）は、前処理済みのファイルがあると作り直さずにそのまま使います。前回の出力を残したままだと、更新した処理が反映されないことがあります。
+
+```bash
+cd ~/aerial-work
+rm -r output/mydata
+~/aerial-photo-tile-pipeline/docker-run.sh config/mydata.conf
+```
+
+作業フォルダの設定ファイル（`config/mydata.conf`）は、更新では書き換わりません。ひな形（`config/sample.conf.example`）に新しい項目や既定値の変更があっても、手元の設定ファイルには入りません。ひな形の変更を取り込むときは、次のように差分を見て、必要な行を手で反映してください。
+
+```bash
+diff ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
+```
+
 ## OS ごとの注意
 
 ### macOS
