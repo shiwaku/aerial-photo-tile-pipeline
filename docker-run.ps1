@@ -32,22 +32,28 @@ $publicImage = 'ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest'
 
 if ($args.Count -lt 1) { Fail "使い方: .\docker-run.ps1 config\<name>.conf [--from N] [--to N]" }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Fail "docker が見つかりません" }
+# 手元にイメージがあれば $true、無ければ $false を返す。Docker に接続できないなど、
+# 「無い」以外の理由で確かめられないときは止める。どんな失敗でも「無い」とみなすと、
+# Docker の一時的な不調で、気付かないうちに古い公開イメージで動くことがある
+function Test-Image([string]$name) {
+  $err = (& docker image inspect $name 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0) { return $true }
+  if ($err -match 'No such image') { return $false }
+  Fail "イメージ $name を確かめられません（Docker Desktop が起動しているか確認してください）: $($err.Trim())"
+}
+
 if ($env:IMAGE) {
   $image = $env:IMAGE
+} elseif (Test-Image $localImage) {
+  $image = $localImage
+  [Console]::Error.WriteLine("手元でビルドしたイメージ $image を使います")
 } else {
-  & docker image inspect $localImage *> $null
-  if ($LASTEXITCODE -eq 0) {
-    $image = $localImage
-    [Console]::Error.WriteLine("手元でビルドしたイメージ $image を使います")
-  } else {
-    $image = $publicImage
-    [Console]::Error.WriteLine("公開イメージ $image を使います")
-  }
+  $image = $publicImage
+  [Console]::Error.WriteLine("公開イメージ $image を使います")
 }
 # レジストリを含まない名前は手元にあるはずなので、無ければ build を促す（含む名前は docker run が取得する）
 if ($image -notlike '*/*') {
-  & docker image inspect $image *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if (-not (Test-Image $image)) {
     Fail "イメージ $image がありません。リポジトリで docker build -t $image . を実行してください"
   }
 }
