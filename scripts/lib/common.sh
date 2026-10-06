@@ -13,7 +13,13 @@ _ts() { date +'%H:%M:%S'; }
 
 log()  { printf '[%s] %s\n' "$(_ts)" "$*"; }
 warn() { printf '[%s] WARN: %s\n' "$(_ts)" "$*" >&2; }
-die()  { printf '[%s] ERROR: %s\n' "$(_ts)" "$*" >&2; exit 1; }
+# 何も書き出さないうちに止まった場合、load_conf で作った output/<id>/ が空のまま残らないようにする
+# （rmdir は空のときだけ消す）
+die()  {
+  printf '[%s] ERROR: %s\n' "$(_ts)" "$*" >&2
+  [ -n "${WORK_DIR:-}" ] && rmdir "$WORK_DIR" 2>/dev/null
+  exit 1
+}
 
 step() {
   printf '\n=== %s ===\n' "$*"
@@ -110,9 +116,20 @@ load_conf() {
 # SRC_EXT="auto" のときに受け付ける拡張子
 AUTO_EXTS=(tif tiff jpg jpeg png)
 
+# SRC_DIR があることを確かめる。list_sources は < <(...) の中で呼ばれることがあり、
+# そこでの die は呼び出し元を止めないので、呼び出し元でも先にこれを呼ぶ
+require_src_dir() {
+  [ -d "$SRC_DIR" ] && return 0
+  # ひな形をコピーしたまま書き換えずに実行した場合
+  if [ "$DATASET_ID" = "sample" ] && [ "$SRC_DIR" = "data/sample" ]; then
+    die "設定ファイルがひな形のままです（DATASET_ID=\"sample\"、SRC_DIR=\"data/sample\"）。DATASET_ID と SRC_DIR を、自分のデータに合わせて書き換えてください"
+  fi
+  die "SRC_DIR が存在しません: $SRC_DIR（Step 0 でデータを取得するか、手動で配置してください）"
+}
+
 # 入力画像の一覧を NUL 区切りで出力（サブディレクトリは辿らない）
 list_sources() {
-  [ -d "$SRC_DIR" ] || die "SRC_DIR が存在しません: $SRC_DIR（Step 0 でデータを取得するか、手動で配置してください）"
+  require_src_dir
   if [ "$SRC_EXT" = "auto" ]; then
     local expr=()
     for e in "${AUTO_EXTS[@]}"; do

@@ -39,7 +39,7 @@ JGD2011 平面直角座標系は 第1系 = EPSG:6669 〜 第19系 = EPSG:6687（
 
 | 設定 | デフォルト | 説明 |
 |---|---|---|
-| `TILE_OUTPUT` | `dir` | `dir`（XYZ ディレクトリ）または `pmtiles`（単一ファイル） |
+| `TILE_OUTPUT` | `dir` | `dir`（XYZ ディレクトリ）または `pmtiles`（単一ファイル）。`sample.conf.example` では `pmtiles` |
 | `TILE_FORMAT` | `webp` | `webp` または `png` |
 | `WEBP_QUALITY` | `85` | 非可逆の品質（1-100）。`lossless` と書くと可逆（`--webp-lossless`） |
 | `RESAMPLING` | `average` | 縮小時の再標本化方法（`average` / `near` / `bilinear` / `lanczos` など） |

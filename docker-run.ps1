@@ -38,9 +38,10 @@ if ($env:IMAGE) {
   & docker image inspect $localImage *> $null
   if ($LASTEXITCODE -eq 0) {
     $image = $localImage
+    [Console]::Error.WriteLine("手元でビルドしたイメージ $image を使います")
   } else {
     $image = $publicImage
-    [Console]::Error.WriteLine("手元にイメージ $localImage が無いため、公開イメージ $image を使います")
+    [Console]::Error.WriteLine("公開イメージ $image を使います")
   }
 }
 # レジストリを含まない名前は手元にあるはずなので、無ければ build を促す（含む名前は docker run が取得する）
@@ -71,6 +72,7 @@ foreach ($d in 'data', 'output', 'config') {
 $dockerArgs = @(
   'run', '--rm',
   '-e', 'HOME=/tmp',
+  '-e', "HOST_PROJECT_DIR=$projectDir",
   '-v', "$(Join-Path $projectDir 'data'):/work/data",
   '-v', "$(Join-Path $projectDir 'output'):/work/output",
   '-v', "$(Join-Path $projectDir 'config'):/work/config:ro",

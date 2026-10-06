@@ -9,10 +9,17 @@ require_cmd gdalinfo python3
 
 step "Step 1: 入力データ検査（$DATASET_ID）"
 
-mkdir -p "$INSPECT_DIR"
-
+# 入力が無いときに空の output/<id>/inspect/ を残さないよう、出力フォルダは入力を確かめてから作る
+require_src_dir
 mapfile -d '' sources < <(list_sources)
-[ "${#sources[@]}" -gt 0 ] || die "入力画像が見つかりません: $SRC_DIR/*.$SRC_EXT"
+if [ "${#sources[@]}" -eq 0 ]; then
+  if [ "$SRC_EXT" = "auto" ]; then
+    die "入力画像が見つかりません: $SRC_DIR（拡張子 ${AUTO_EXTS[*]} を探しました。サブフォルダの中は読みません）"
+  fi
+  die "入力画像が見つかりません: $SRC_DIR/*.$SRC_EXT（サブフォルダの中は読みません）"
+fi
+
+mkdir -p "$INSPECT_DIR"
 
 log "対象 ${#sources[@]} ファイル（$SRC_DIR、拡張子: $(source_exts | paste -sd, -)）"
 

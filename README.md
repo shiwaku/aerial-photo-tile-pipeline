@@ -52,7 +52,7 @@ ls output/shizuoka-city/tiles/            # ZL9〜19 のタイルが出る
 cat output/shizuoka-city/inspect/report.md   # CRS・GSD・最大ZL の判定根拠
 ```
 
-手元のデータを使う場合は Step 0 を飛ばし、画像とワールドファイルを `data/<任意の名前>/` に平置きしてから `config/sample.conf.example` をコピーして `SRC_DIR` を指定します（[入力データの置き方](data/README.md)）。設定値は `auto` のままで構いませんが、**まず `./scripts/01_inspect.sh` だけを実行して判定結果を確認してから**通しで流してください。
+手元のデータを使う場合は Step 0 を飛ばし、画像とワールドファイルを `data/<任意の名前>/` に平置きしてから `config/sample.conf.example` をコピーして `SRC_DIR` を指定します（[入力データの置き方](data/README.md)）。ひな形は PMTiles で出力する設定なので、`pip install pmtiles` が要ります（タイルのフォルダで出力するなら `TILE_OUTPUT="dir"` に変えれば不要です）。設定値は `auto` のままで構いませんが、**まず `./scripts/01_inspect.sh` だけを実行して判定結果を確認してから**通しで流してください。
 
 **3. 地図で見る**
 
@@ -115,7 +115,7 @@ mkdir ~/aerial-selftest && cd ~/aerial-selftest
 | `SRC_SRS` | `auto` | 入力の CRS。`auto` は画像の CRS →図郭コードの系番号の順で判定 |
 | `NODATA` | `auto` | 図郭外の余白色。`auto` は外周画素の実測で判定、空で透過処理なし |
 | `MIN_ZOOM` / `MAX_ZOOM` | `9` / `auto` | `auto` は GSD とデータ中心緯度から算出 |
-| `TILE_OUTPUT` | `dir` | `dir`（XYZ ディレクトリ）または `pmtiles`（単一ファイル） |
+| `TILE_OUTPUT` | `dir` | `dir`（XYZ ディレクトリ）または `pmtiles`（単一ファイル）。`sample.conf.example` では `pmtiles` |
 | `TILE_FORMAT` | `webp` | `webp` または `png` |
 | `WEBP_QUALITY` | `85` | 非可逆の品質（1-100）。`lossless` で可逆 |
 | `ATTRIBUTION` | （空） | TileJSON の出典表記。オープンデータのライセンス表記を入れる |
@@ -145,7 +145,7 @@ mkdir ~/aerial-selftest && cd ~/aerial-selftest
 ```bash
 pip install pmtiles
 
-# 設定に 1 行足すだけで、Step 1〜5 の流し方は同じ
+# sample.conf.example から作った設定は最初からこの値。Step 1〜5 の流し方は同じ
 TILE_OUTPUT="pmtiles"
 
 ./scripts/run_pipeline.sh config/sample.conf
