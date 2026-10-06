@@ -75,6 +75,7 @@ cd ~
 git clone https://github.com/shiwaku/aerial-photo-tile-pipeline.git
 mkdir ~/aerial-selftest && cd ~/aerial-selftest
 ~/aerial-photo-tile-pipeline/docker-run.sh selftest      # オープンデータで動作確認
+~/aerial-photo-tile-pipeline/docker-run.sh serve output/selftest/selftest.conf   # ビューワで確認（http://localhost:8080/）
 ```
 
 自分のデータでの実行、Windows の PowerShell での使い方、作業フォルダの形、OS ごとの注意、メモリ・ディスク・Docker Desktop のライセンスについては [Docker で実行する](docs/docker.md) を参照してください。

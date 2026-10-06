@@ -1,5 +1,15 @@
 # パイプラインの実行環境（GDAL + pmtiles）とスクリプト一式。使い方は README の「Docker で実行する」。
 # スクリプトはイメージに含めるので、実行時にマウントするのは data/ output/ config/ だけでよい。
+
+# ビューワ（viewer/）をビルドする。利用者の手元に Node.js が無くても
+# docker-run.sh serve でタイルを確認できるよう、ビルド結果だけをイメージに入れる
+FROM node:22-slim AS viewer
+WORKDIR /viewer
+COPY viewer/package.json viewer/package-lock.json ./
+RUN npm ci
+COPY viewer/ ./
+RUN npm run build
+
 FROM ghcr.io/osgeo/gdal:ubuntu-small-3.13.2
 
 RUN apt-get update \
@@ -11,6 +21,7 @@ WORKDIR /work
 COPY scripts/ scripts/
 COPY tools/ tools/
 COPY config/*.conf.example config/
+COPY --from=viewer /viewer/dist viewer/dist
 # マウントしなくても書き込めるよう、任意の UID（docker run --user）に開けておく
 RUN mkdir -p data output && chmod 1777 data output
 

@@ -1,6 +1,8 @@
 # ビューワ
 
-`viewer/` は生成したタイルを確認する MapLibre GL JS のビューワ（Vite + TypeScript）です。単一 HTML ではないため、使う前にビルドが要ります（Node.js 18 以上）。
+`viewer/` は生成したタイルを確認する MapLibre GL JS のビューワ（Vite + TypeScript）です。
+
+Docker で実行している場合は、ビルド済みのビューワがイメージに入っているので、`docker-run.sh serve config/<name>.conf` だけで見られます（[Docker で実行する](docker.md#ビューワで確認する)）。以下は、Docker を使わずに手元で動かす場合の手順です。単一 HTML ではないため、使う前にビルドが要ります（Node.js 18 以上）。
 
 ```bash
 cd viewer

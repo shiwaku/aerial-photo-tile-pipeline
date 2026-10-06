@@ -171,7 +171,31 @@ XYZ ディレクトリだけでよい場合は、設定ファイルの `TILE_OUT
 
 作業フォルダは環境変数 `PROJECT_DIR`、イメージ名は `IMAGE` で変えられます。ラッパーは、実行の最初に使うイメージを表示します（「公開イメージ … を使います」または「手元でビルドしたイメージ … を使います」）。
 
-ビューワでのプレビュー（`serve.sh`）は、リポジトリの中の `output/` を配信する仕組みなので、作業フォルダの出力には使えません。
+### ビューワで確認する
+
+できたタイルは、イメージに入っているビューワ（MapLibre）で確認できます。手元に Node.js などを入れる必要はありません。作業フォルダで、ラッパーに `serve` と設定ファイルを渡します。
+
+```bash
+# macOS / Linux / WSL2
+cd ~/aerial-work
+~/aerial-photo-tile-pipeline/docker-run.sh serve config/mydata.conf
+```
+
+```powershell
+# Windows PowerShell
+cd $HOME\aerial-work
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" serve config\mydata.conf
+```
+
+`http://localhost:8080/ を開いてください` と出たら、ブラウザで http://localhost:8080/ を開きます。終わったら、ターミナルで Ctrl+C を押して止めます。
+
+- ビューワのファイル（`index.html`・`assets/` など）は、`serve` を実行したときに `output/mydata/` へ置かれます。成果物と同じフォルダにあるので、フォルダごと静的ホスティングに置けば、そのまま公開できます。
+- ポートを変えるときは、最後に番号を付けます（例: `serve config/mydata.conf 3000`）。8080 をほかのアプリが使っていて起動できないときにも使います。
+- 開けるのは自分の PC からだけです（`127.0.0.1` で待ち受けます）。同じネットワークのほかの PC からは見えません。
+- 背景地図（国土地理院）はインターネットから読み込みます。つながっていない場合でも、生成したタイルは表示されます。
+- PMTiles はブラウザが部分的に読み込む仕組みなので、`index.html` をダブルクリックして開いても表示されません。`serve` を使ってください。
+
+ビューワの機能（背景地図の切替、不透明度、整備範囲へのフィット）は、[ビューワ](viewer.md)を参照してください。
 
 ### ラッパーを使わない場合
 

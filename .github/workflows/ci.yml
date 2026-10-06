@@ -28,6 +28,21 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/work" && cd "$RUNNER_TEMP/work"
           "$GITHUB_WORKSPACE/docker-run.sh" selftest
+      - name: ビューワの配信（docker-run.sh serve）
+        run: |
+          cd "$RUNNER_TEMP/work"
+          "$GITHUB_WORKSPACE/docker-run.sh" serve output/selftest/selftest.conf 8080 > serve.log 2>&1 &
+          ok=0
+          for i in $(seq 60); do curl -fsS http://127.0.0.1:8080/tiles.json > /dev/null 2>&1 && { ok=1; break; }; sleep 1; done
+          [ "$ok" = 1 ] || { cat serve.log; exit 1; }
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<html'                       # ビューワの画面
+          curl -fsS http://127.0.0.1:8080/tiles.json | grep -q 'pmtiles://'          # TileJSON
+          code=$(curl -sS -r 0-6 -o head.bin -w '%{http_code}' http://127.0.0.1:8080/selftest.pmtiles)
+          [ "$code" = 206 ] && [ "$(cat head.bin)" = PMTiles ]                      # PMTiles を部分読みできる
+          # Ctrl+C（SIGINT）で止まり、コンテナが残らない
+          docker kill -s INT aerial-tile-serve-8080
+          for i in $(seq 10); do [ -z "$(docker ps -aq --filter name=aerial-tile-serve-8080)" ] && break; sleep 1; done
+          [ -z "$(docker ps -aq --filter name=aerial-tile-serve-8080)" ] || { cat serve.log; exit 1; }
 
   windows:
     runs-on: windows-latest

@@ -65,6 +65,7 @@ if [ -n "${HOST_PROJECT_DIR:-}" ]; then
   else
     log "出力: $host_out${sep}tiles${sep}"
   fi
+  log "ビューワで確認: ${HOST_WRAPPER:-docker-run.sh} serve $conf"
 else
   log "出力: $WORK_DIR"
   if [ "$TILE_OUTPUT" = "pmtiles" ]; then

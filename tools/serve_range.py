@@ -138,8 +138,11 @@ def main() -> int:
 
     socketserver.TCPServer.allow_reuse_address = True
     with ThreadingHTTPServer(("", args.port), handler) as httpd:
-        print(f"Serving {args.directory} on http://localhost:{args.port}/ "
-              f"(Range 対応, Ctrl+C で終了)", flush=True)
+        # docker-run.sh serve から起動した場合（HOST_PORT あり）は、手元から開く URL を
+        # serve.sh が示している。コンテナの中のポートとパスは手元と違って紛らわしいので出さない
+        if "HOST_PORT" not in os.environ:
+            print(f"Serving {args.directory} on http://localhost:{args.port}/ "
+                  f"(Range 対応, Ctrl+C で終了)", flush=True)
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
