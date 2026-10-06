@@ -22,6 +22,14 @@ done
 
 load_conf "$conf"
 
+# PMTiles の書き出しは Step 4 の最後なので、Python の pmtiles が無いとタイル生成を
+# 終えてから落ちる。タイル生成を含むときは最初に確かめる（Docker イメージには入っている）
+if [ "$TILE_OUTPUT" = "pmtiles" ] && [ "$PMTILES_VIA" = "gdal2tiles" ] \
+   && [ "$from_step" -le 4 ] && [ "$to_step" -ge 4 ]; then
+  python3 -c 'import pmtiles' 2>/dev/null \
+    || die "PMTiles の書き出しに Python の pmtiles が必要です（pip install pmtiles）。タイルのフォルダで出力するなら、設定を TILE_OUTPUT=\"dir\" にしてください"
+fi
+
 start_epoch=$SECONDS
 log "パイプライン開始: $DATASET_ID（Step $from_step → $to_step）"
 
@@ -42,9 +50,23 @@ done
 
 elapsed=$((SECONDS - start_epoch))
 step "完了（所要 $((elapsed / 60))分$((elapsed % 60))秒）"
-log "出力: $WORK_DIR"
-if [ "$TILE_OUTPUT" = "pmtiles" ]; then
-  [ -f "$PMTILES_FILE" ] && log "プレビュー: scripts/serve.sh $conf"
+if [ -n "${HOST_PROJECT_DIR:-}" ]; then
+  # docker-run.sh / docker-run.ps1 から実行した場合。コンテナの中のパス（/work/...）は
+  # 手元から見えないので、作業フォルダのパスで示す。serve.sh はコンテナの外で
+  # リポジトリの output/ を見るため、作業フォルダの出力には使えない
+  host_out="$HOST_PROJECT_DIR/output/$DATASET_ID"
+  if [ "$TILE_OUTPUT" = "pmtiles" ]; then
+    log "出力: $host_out/$(basename "$PMTILES_FILE")"
+    # PMTILES_KEEP_TILES="true"（既定）なら、中間の XYZ ディレクトリも成果物として残っている
+    [ -d "$TILES_DIR" ] && log "出力: $host_out/tiles/（XYZ ディレクトリ）"
+  else
+    log "出力: $host_out/tiles/"
+  fi
 else
-  [ -d "$TILES_DIR" ] && log "プレビュー: scripts/serve.sh $conf"
+  log "出力: $WORK_DIR"
+  if [ "$TILE_OUTPUT" = "pmtiles" ]; then
+    [ -f "$PMTILES_FILE" ] && log "プレビュー: scripts/serve.sh $conf"
+  else
+    [ -d "$TILES_DIR" ] && log "プレビュー: scripts/serve.sh $conf"
+  fi
 fi

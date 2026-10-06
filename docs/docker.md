@@ -106,12 +106,15 @@ cd ~/aerial-work
 cp ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
 ```
 
-`config/mydata.conf` をエディタで開き、`DATASET_ID` と `SRC_DIR` の 2 行を次のように書き換えます。ほかの項目は `auto` のままで、実データから判定されます（[設定リファレンス](config.md)）。
+設定ファイルの `DATASET_ID` と `SRC_DIR` の 2 行を、`mydata` 用に書き換えます。ほかの項目は `auto` のままで、実データから判定されます（[設定リファレンス](config.md)）。
 
 ```bash
-DATASET_ID="mydata"
-SRC_DIR="data/mydata"
+sed -i.bak -e 's/^DATASET_ID=.*/DATASET_ID="mydata"/' -e 's#^SRC_DIR=.*#SRC_DIR="data/mydata"#' config/mydata.conf
+rm config/mydata.conf.bak
+grep -E '^(DATASET_ID|SRC_DIR)=' config/mydata.conf   # DATASET_ID="mydata" と SRC_DIR="data/mydata" が出れば OK
 ```
+
+エディタで書き換えても構いません（macOS なら `open -e config/mydata.conf`）。書き換えずに実行すると、「設定ファイルがひな形のままです」と出て止まります。
 
 入力画像を `~/aerial-work/data/mydata/` に置きます。S3 にある場合は、AWS CLI で取得します。`s3://` 以降は、データを置いた場所（バケットとフォルダ）です。
 
@@ -135,9 +138,13 @@ cd ~/aerial-work
 
 PowerShell では、`& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" config\mydata.conf` のように同じ引数で使います。
 
-成果物は `~/aerial-work/output/mydata/` にできます。ひな形のままだとタイルのフォルダ（`tiles/`）を出力します。PMTiles 1 ファイルにしたい場合は、設定ファイルの `TILE_OUTPUT="dir"` を `TILE_OUTPUT="pmtiles"` に書き換えると、`mydata.pmtiles` ができます。判定の根拠は `output/mydata/inspect/report.md` に残るので、確認してください。
+成果物は、PMTiles（`~/aerial-work/output/mydata/mydata.pmtiles`）と、同じタイルの XYZ ディレクトリ（`~/aerial-work/output/mydata/tiles/{z}/{x}/{y}.webp`）の両方です。最後に `出力:` の行で場所が表示されます。XYZ ディレクトリが要らない場合は、設定ファイルの `PMTILES_KEEP_TILES` を `"false"` にすると、PMTiles を作ったあとに消します。判定の根拠は `output/mydata/inspect/report.md` に残るので、確認してください。
 
-作業フォルダは環境変数 `PROJECT_DIR`、イメージ名は `IMAGE` で変えられます。ビューワのビルドとプレビュー（`serve.sh`）はホスト側で実行します。
+XYZ ディレクトリだけでよい場合は、設定ファイルの `TILE_OUTPUT="pmtiles"` を `TILE_OUTPUT="dir"` に書き換えます。
+
+作業フォルダは環境変数 `PROJECT_DIR`、イメージ名は `IMAGE` で変えられます。ラッパーは、実行の最初に使うイメージを表示します（「公開イメージ … を使います」または「手元でビルドしたイメージ … を使います」）。
+
+ビューワでのプレビュー（`serve.sh`）は、リポジトリの中の `output/` を配信する仕組みなので、作業フォルダの出力には使えません。
 
 ### ラッパーを使わない場合
 

@@ -25,9 +25,10 @@ command -v docker >/dev/null 2>&1 || die "docker が見つかりません"
 if [ -z "${IMAGE:-}" ]; then
   if docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
     IMAGE="$LOCAL_IMAGE"
+    printf '手元でビルドしたイメージ %s を使います\n' "$IMAGE" >&2
   else
     IMAGE="$PUBLIC_IMAGE"
-    printf '手元にイメージ %s が無いため、公開イメージ %s を使います\n' "$LOCAL_IMAGE" "$IMAGE" >&2
+    printf '公開イメージ %s を使います\n' "$IMAGE" >&2
   fi
 fi
 # レジストリを含まない名前は手元にあるはずなので、無ければ build を促す（含む名前は docker run が取得する）
@@ -65,7 +66,7 @@ tty=()
 [ -t 0 ] && [ -t 1 ] && tty=(-it)
 
 exec ${wrap[@]+"${wrap[@]}"} docker run --rm ${tty[@]+"${tty[@]}"} \
-  --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  --user "$(id -u):$(id -g)" -e HOME=/tmp -e HOST_PROJECT_DIR="$PROJECT_DIR" \
   -v "$PROJECT_DIR/data":/work/data \
   -v "$PROJECT_DIR/output":/work/output \
   -v "$PROJECT_DIR/config":/work/config:ro \
