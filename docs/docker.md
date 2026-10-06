@@ -240,6 +240,8 @@ git diff --no-index ~/aerial-photo-tile-pipeline/config/sample.conf.example conf
 git diff --no-index $HOME\aerial-photo-tile-pipeline\config\sample.conf.example config\mydata.conf
 ```
 
+PowerShell で書き換えた設定ファイルは先頭に BOM が付くため、1 行目が同じ内容でも差分として表示されます。読み込みには影響しないので、無視して構いません。
+
 ## OS ごとの注意
 
 ### macOS
