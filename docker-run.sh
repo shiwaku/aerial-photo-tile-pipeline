@@ -22,8 +22,20 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 [ $# -ge 1 ] || die "使い方: $0 config/<name>.conf [--from N] [--to N]"
 command -v docker >/dev/null 2>&1 || die "docker が見つかりません"
+# 手元にイメージがあれば 0、無ければ 1 を返す。Docker に接続できないなど、
+# 「無い」以外の理由で確かめられないときは止める。どんな失敗でも「無い」とみなすと、
+# Docker の一時的な不調で、気付かないうちに古い公開イメージで動くことがある
+image_exists() {
+  local err
+  err="$(docker image inspect "$1" 2>&1 >/dev/null)" && return 0
+  case "$err" in
+    *"No such image"*) return 1 ;;
+  esac
+  die "イメージ $1 を確かめられません（Docker Desktop が起動しているか確認してください）: $err"
+}
+
 if [ -z "${IMAGE:-}" ]; then
-  if docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
+  if image_exists "$LOCAL_IMAGE"; then
     IMAGE="$LOCAL_IMAGE"
     printf '手元でビルドしたイメージ %s を使います\n' "$IMAGE" >&2
   else
@@ -34,7 +46,7 @@ fi
 # レジストリを含まない名前は手元にあるはずなので、無ければ build を促す（含む名前は docker run が取得する）
 case "$IMAGE" in
   */*) ;;
-  *) docker image inspect "$IMAGE" >/dev/null 2>&1 \
+  *) image_exists "$IMAGE" \
        || die "イメージ $IMAGE がありません。リポジトリで docker build -t $IMAGE . を実行してください" ;;
 esac
 

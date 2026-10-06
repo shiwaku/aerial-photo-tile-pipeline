@@ -240,7 +240,9 @@ git diff --no-index ~/aerial-photo-tile-pipeline/config/sample.conf.example conf
 git diff --no-index $HOME\aerial-photo-tile-pipeline\config\sample.conf.example config\mydata.conf
 ```
 
-PowerShell で書き換えた設定ファイルは先頭に BOM が付くため、1 行目が同じ内容でも差分として表示されます。読み込みには影響しないので、無視して構いません。
+Windows PowerShell 5.1 の `Set-Content -Encoding UTF8` や、メモ帳の「UTF-8 (BOM 付き)」で保存した設定ファイルは、先頭に BOM が付きます。そのため、1 行目が同じ内容でも差分として表示されます（PowerShell 7 では BOM は付きません）。読み込みには影響しないので、無視して構いません。
+
+Windows では、差分の前に `warning: ... LF will be replaced by CRLF the next time Git touches it` と出ることがあります。Windows の Git の改行コードの設定（`core.autocrlf`）による表示で、ファイルは変わらないので無視して構いません。
 
 ## OS ごとの注意
 
