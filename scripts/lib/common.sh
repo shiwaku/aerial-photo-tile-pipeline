@@ -76,9 +76,11 @@ load_conf() {
   local conf="$1"
   [ -n "$conf" ] || die "設定ファイルを指定してください（例: config/sample.conf）"
   [ -f "$conf" ] || die "設定ファイルが見つかりません: $conf"
-  # Windows のエディタで保存した CRLF の設定でも値に \r が混ざらないよう、CR を除いて読む
+  # Windows のエディタで保存した設定でも読めるよう、CR と先頭の BOM（EF BB BF）を除いて読む。
+  # BOM が残ると 1 行目の代入がコマンド名として解釈される（#18）。
+  # BSD sed は \x エスケープを解さないので、BOM は printf の 8 進で渡す
   # （source <(...) は macOS 標準の bash 3.2 で中身を読まないため eval にする）
-  eval "$(tr -d '\r' < "$conf")"
+  eval "$(tr -d '\r' < "$conf" | LC_ALL=C sed "1s/^$(printf '\357\273\277')//")"
 
   [ -n "$DATASET_ID" ] || die "DATASET_ID が未設定です: $conf"
   [ -n "$SRC_DIR" ]    || die "SRC_DIR が未設定です: $conf"
