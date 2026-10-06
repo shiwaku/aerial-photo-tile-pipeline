@@ -89,7 +89,7 @@ mkdir $HOME\aerial-selftest; cd $HOME\aerial-selftest
 
 ## 3. 自分のデータで実行する
 
-ここでは、作業フォルダを `~/aerial-work`、データセット名を `mydata` として説明します。別の名前にする場合は、以下のコマンドと設定ファイルの `mydata` をそろえて変えてください。作業フォルダは次の形になります。
+ここでは、作業フォルダを `~/aerial-work`（PowerShell では `$HOME\aerial-work`）、データセット名を `mydata` として説明します。別の名前にする場合は、以下のコマンドと設定ファイルの `mydata` をそろえて変えてください。コマンドは macOS / Linux / WSL2 と Windows PowerShell の両方を並べています。作業フォルダは次の形になります。
 
 ```
 ~/aerial-work/
@@ -101,22 +101,37 @@ mkdir $HOME\aerial-selftest; cd $HOME\aerial-selftest
 作業フォルダを作り、設定ファイルのひな形をコピーします。
 
 ```bash
+# macOS / Linux / WSL2
 mkdir -p ~/aerial-work/config ~/aerial-work/data/mydata
 cd ~/aerial-work
 cp ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
 ```
 
+```powershell
+# Windows PowerShell
+New-Item -ItemType Directory -Force $HOME\aerial-work\config, $HOME\aerial-work\data\mydata | Out-Null
+cd $HOME\aerial-work
+Copy-Item $HOME\aerial-photo-tile-pipeline\config\sample.conf.example config\mydata.conf
+```
+
 設定ファイルの `DATASET_ID` と `SRC_DIR` の 2 行を、`mydata` 用に書き換えます。ほかの項目は `auto` のままで、実データから判定されます（[設定リファレンス](config.md)）。
 
 ```bash
+# macOS / Linux / WSL2
 sed -i.bak -e 's/^DATASET_ID=.*/DATASET_ID="mydata"/' -e 's#^SRC_DIR=.*#SRC_DIR="data/mydata"#' config/mydata.conf
 rm config/mydata.conf.bak
 grep -E '^(DATASET_ID|SRC_DIR)=' config/mydata.conf   # DATASET_ID="mydata" と SRC_DIR="data/mydata" が出れば OK
 ```
 
-エディタで書き換えても構いません（macOS なら `open -e config/mydata.conf`）。書き換えずに実行すると、「設定ファイルがひな形のままです」と出て止まります。
+```powershell
+# Windows PowerShell
+(Get-Content -Encoding UTF8 config\mydata.conf) -replace '^DATASET_ID=.*', 'DATASET_ID="mydata"' -replace '^SRC_DIR=.*', 'SRC_DIR="data/mydata"' | Set-Content -Encoding UTF8 config\mydata.conf
+Select-String '^(DATASET_ID|SRC_DIR)=' config\mydata.conf   # DATASET_ID="mydata" と SRC_DIR="data/mydata" が出れば OK
+```
 
-入力画像を `~/aerial-work/data/mydata/` に置きます。S3 にある場合は、AWS CLI で取得します。`s3://` 以降は、データを置いた場所（バケットとフォルダ）です。
+エディタで書き換えても構いません（macOS なら `open -e config/mydata.conf`、Windows なら `notepad config\mydata.conf`）。`SRC_DIR` の区切りは、Windows でも `/` で書きます（コンテナの中の Linux が読むため）。設定ファイルは CRLF でも BOM 付きの UTF-8 でも読めます。書き換えずに実行すると、「設定ファイルがひな形のままです」と出て止まります。
+
+入力画像を `data/mydata/` に置きます（エクスプローラーや Finder でコピーしても構いません）。S3 にある場合は、AWS CLI で取得します。`s3://` 以降は、データを置いた場所（バケットとフォルダ）です。コマンドは macOS / Linux / WSL2 / PowerShell で共通です。
 
 ```bash
 aws s3 sync s3://バケット名/フォルダ/ data/mydata/
@@ -125,18 +140,30 @@ aws s3 sync s3://バケット名/フォルダ/ data/mydata/
 実行します。Step 1〜5 を通して流します。
 
 ```bash
+# macOS / Linux / WSL2
 cd ~/aerial-work
 ~/aerial-photo-tile-pipeline/docker-run.sh config/mydata.conf
+```
+
+```powershell
+# Windows PowerShell
+cd $HOME\aerial-work
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" config\mydata.conf
 ```
 
 やり直すときは、途中のステップから始めたり、1 ステップだけ流したりできます。
 
 ```bash
+# macOS / Linux / WSL2
 ~/aerial-photo-tile-pipeline/docker-run.sh config/mydata.conf --from 4                 # Step 4 から
 ~/aerial-photo-tile-pipeline/docker-run.sh ./scripts/01_inspect.sh config/mydata.conf  # Step 1 だけ
 ```
 
-PowerShell では、`& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" config\mydata.conf` のように同じ引数で使います。
+```powershell
+# Windows PowerShell
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" config\mydata.conf --from 4                 # Step 4 から
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" ./scripts/01_inspect.sh config/mydata.conf  # Step 1 だけ
+```
 
 成果物は、PMTiles（`~/aerial-work/output/mydata/mydata.pmtiles`）と、同じタイルの XYZ ディレクトリ（`~/aerial-work/output/mydata/tiles/{z}/{x}/{y}.webp`）の両方です。最後に `出力:` の行で場所が表示されます。XYZ ディレクトリが要らない場合は、設定ファイルの `PMTILES_KEEP_TILES` を `"false"` にすると、PMTiles を作ったあとに消します。判定の根拠は `output/mydata/inspect/report.md` に残るので、確認してください。
 
@@ -163,6 +190,7 @@ main が更新されると、公開イメージ `latest` も作り直されま�
 次の順で、手元を最新にしてから流し直します。
 
 ```bash
+# macOS / Linux / WSL2
 # 1. リポジトリを最新にする（ラッパーと手順書も変わることがあるため）
 git -C ~/aerial-photo-tile-pipeline pull
 
@@ -174,21 +202,45 @@ cd ~/aerial-selftest
 ~/aerial-photo-tile-pipeline/docker-run.sh selftest
 ```
 
+```powershell
+# Windows PowerShell
+git -C $HOME\aerial-photo-tile-pipeline pull
+docker pull ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest
+cd $HOME\aerial-selftest
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" selftest
+```
+
 実行の最初に「公開イメージ ghcr.io/shiwaku/aerial-photo-tile-pipeline:latest を使います」と出ることを確認してください。「手元でビルドしたイメージ aerial-tile-pipeline を使います」と出る場合は、更新されていない手元のビルドが優先されています。`docker rmi aerial-tile-pipeline` で消してからやり直してください。
 
 自分のデータは、前回の出力を消してから流し直します。Step 2（前処理）は、前処理済みのファイルがあると作り直さずにそのまま使います。前回の出力を残したままだと、更新した処理が反映されないことがあります。
 
 ```bash
+# macOS / Linux / WSL2
 cd ~/aerial-work
 rm -r output/mydata
 ~/aerial-photo-tile-pipeline/docker-run.sh config/mydata.conf
 ```
 
+```powershell
+# Windows PowerShell
+cd $HOME\aerial-work
+Remove-Item -Recurse output\mydata
+& "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" config\mydata.conf
+```
+
 作業フォルダの設定ファイル（`config/mydata.conf`）は、更新では書き換わりません。ひな形（`config/sample.conf.example`）に新しい項目や既定値の変更があっても、手元の設定ファイルには入りません。ひな形の変更を取り込むときは、次のように差分を見て、必要な行を手で反映してください。
 
 ```bash
-diff ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
+# macOS / Linux / WSL2
+git diff --no-index ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
 ```
+
+```powershell
+# Windows PowerShell
+git diff --no-index $HOME\aerial-photo-tile-pipeline\config\sample.conf.example config\mydata.conf
+```
+
+PowerShell で書き換えた設定ファイルは先頭に BOM が付くため、1 行目が同じ内容でも差分として表示されます。読み込みには影響しないので、無視して構いません。
 
 ## OS ごとの注意
 
@@ -205,7 +257,7 @@ diff ~/aerial-photo-tile-pipeline/config/sample.conf.example config/mydata.conf
 
 - **WSL2 を推奨します。** WSL の Ubuntu などで clone し、作業フォルダも WSL 側（`~/` 以下）に置いてください。Windows 側（`C:\` や `/mnt/c`）に置くと、入力の読み込みが大幅に遅くなります（[性能実測](benchmarks.md#入力の置き場所drvfs--ext4)）。Docker Desktop の Settings → Resources → WSL integration で、使うディストリビューションを有効にしてください。
 - **PowerShell の場合**、作業フォルダは Windows 側になるため、大きなデータでは WSL2 より遅くなります。`docker-run.ps1` は実行中だけスリープを抑止します。スクリプトの実行がブロックされる場合は、`powershell -ExecutionPolicy Bypass -File "$HOME\aerial-photo-tile-pipeline\docker-run.ps1" selftest` のように起動してください。
-- **改行コード**: `.gitattributes` で、コンテナの中で読むファイル（`*.sh`・`*.py`・`Dockerfile` など）は Windows で clone しても LF のままになります。設定ファイル（`config/*.conf`）は CRLF で保存しても読めます。
+- **改行コード**: `.gitattributes` で、コンテナの中で読むファイル（`*.sh`・`*.py`・`Dockerfile` など）は Windows で clone しても LF のままになります。設定ファイル（`config/*.conf`）は CRLF で保存しても、BOM 付きの UTF-8 で保存しても読めます。
 - WSL2 では、スリープは Windows 側の電源設定に従います。
 
 ## 大きなデータを流すときの注意

@@ -54,13 +54,16 @@ if [ -n "${HOST_PROJECT_DIR:-}" ]; then
   # docker-run.sh / docker-run.ps1 から実行した場合。コンテナの中のパス（/work/...）は
   # 手元から見えないので、作業フォルダのパスで示す。serve.sh はコンテナの外で
   # リポジトリの output/ を見るため、作業フォルダの出力には使えない
-  host_out="$HOST_PROJECT_DIR/output/$DATASET_ID"
+  # docker-run.ps1 から来たパス（C:\Users\...）は、区切りを \ にそろえて示す
+  sep="/"
+  case "$HOST_PROJECT_DIR" in *\\*) sep='\' ;; esac
+  host_out="$HOST_PROJECT_DIR${sep}output${sep}$DATASET_ID"
   if [ "$TILE_OUTPUT" = "pmtiles" ]; then
-    log "出力: $host_out/$(basename "$PMTILES_FILE")"
+    log "出力: $host_out${sep}$(basename "$PMTILES_FILE")"
     # PMTILES_KEEP_TILES="true"（既定）なら、中間の XYZ ディレクトリも成果物として残っている
-    [ -d "$TILES_DIR" ] && log "出力: $host_out/tiles/（XYZ ディレクトリ）"
+    [ -d "$TILES_DIR" ] && log "出力: $host_out${sep}tiles${sep}（XYZ ディレクトリ）"
   else
-    log "出力: $host_out/tiles/"
+    log "出力: $host_out${sep}tiles${sep}"
   fi
 else
   log "出力: $WORK_DIR"
