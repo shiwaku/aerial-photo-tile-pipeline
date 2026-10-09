@@ -4,6 +4,7 @@
 # Usage: ./docker-run.sh config/<name>.conf [--from N] [--to N]
 #        ./docker-run.sh ./scripts/<step>.sh config/<name>.conf ...   # 個別ステップ
 #        ./docker-run.sh selftest                                       # オープンデータで動作確認
+#        ./docker-run.sh serve config/<name>.conf [port]                # ビューワで確認（既定 8080）
 #
 # 作業フォルダ（既定はカレントディレクトリ）の data/ output/ config/ をコンテナの
 # /work 以下にマウントする。設定ファイルのパスはこの作業フォルダからの相対で書く。
@@ -51,9 +52,20 @@ case "$IMAGE" in
 esac
 
 # 第1引数が設定ファイルなら一括実行、それ以外はコマンドとしてそのまま渡す
+serve_opts=()
 case "$1" in
   *.conf)   cmd=(./scripts/run_pipeline.sh "$@"); conf="$1" ;;
   selftest) shift; cmd=(./scripts/selftest.sh "$@"); conf="" ;;
+  serve)
+    conf="${2:-}"; port="${3:-8080}"
+    [ -n "$conf" ] || die "使い方: $0 serve config/<name>.conf [port]"
+    case "$port" in ''|*[!0-9]*) die "ポートは数字で指定してください: $port" ;; esac
+    # ビューワは output/<id>/ に置いて、コンテナの中の 8080 で配信する。
+    # 手元の 127.0.0.1 にだけつなぎ、同じネットワークのほかの PC からは見えないようにする。
+    # --init は Ctrl+C を配信サーバに届けて止めるため
+    cmd=(./scripts/serve.sh "$conf" 8080)
+    serve_opts=(-p "127.0.0.1:$port:8080" -e "HOST_PORT=$port" --init --name "aerial-tile-serve-$port")
+    ;;
   *)        cmd=("$@"); conf="" ;;
 esac
 if [ -n "$conf" ]; then
@@ -68,7 +80,9 @@ mkdir -p "$PROJECT_DIR/data" "$PROJECT_DIR/output" "$PROJECT_DIR/config"
 # 一度試して通ったときだけ使う
 wrap=()
 inhibit=(systemd-inhibit --what=sleep:idle --why="aerial-photo-tile-pipeline")
-if command -v caffeinate >/dev/null 2>&1; then
+if [ "${#serve_opts[@]}" -gt 0 ]; then
+  :  # ビューワの配信は長時間ジョブではないので、スリープを抑止しない
+elif command -v caffeinate >/dev/null 2>&1; then
   wrap=(caffeinate -is)
 elif command -v systemd-inhibit >/dev/null 2>&1 && "${inhibit[@]}" true >/dev/null 2>&1; then
   wrap=("${inhibit[@]}")
@@ -78,7 +92,8 @@ tty=()
 [ -t 0 ] && [ -t 1 ] && tty=(-it)
 
 exec ${wrap[@]+"${wrap[@]}"} docker run --rm ${tty[@]+"${tty[@]}"} \
-  --user "$(id -u):$(id -g)" -e HOME=/tmp -e HOST_PROJECT_DIR="$PROJECT_DIR" \
+  --user "$(id -u):$(id -g)" -e HOME=/tmp -e HOST_PROJECT_DIR="$PROJECT_DIR" -e HOST_WRAPPER=docker-run.sh \
+  ${serve_opts[@]+"${serve_opts[@]}"} \
   -v "$PROJECT_DIR/data":/work/data \
   -v "$PROJECT_DIR/output":/work/output \
   -v "$PROJECT_DIR/config":/work/config:ro \

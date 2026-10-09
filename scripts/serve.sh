@@ -28,8 +28,11 @@ fi
 # ビルド成果物を作業ディレクトリへ複製する。パイプラインの出力とは名前が衝突しない。
 cp -r "$dist"/. "$WORK_DIR"/
 
-log "http://localhost:$port/ を開いてください（Ctrl+C で終了）"
+# docker-run.sh serve から起動した場合、コンテナの中のポートと手元のポートが違うことがある
+log "http://localhost:${HOST_PORT:-$port}/ を開いてください（Ctrl+C で終了）"
 
 # PMTiles は HTTP Range で部分読みするため、Range 非対応の
 # `python3 -m http.server` は使えない。
-python3 "$REPO_ROOT/tools/serve_range.py" --directory "$WORK_DIR" --port "$port"
+# exec にして、Ctrl+C（SIGINT）が配信サーバに直接届くようにする。docker-run.ps1 は
+# -it を付けないので、シグナルはコンテナの PID 1（--init）経由で、この子にしか届かない
+exec python3 "$REPO_ROOT/tools/serve_range.py" --directory "$WORK_DIR" --port "$port"

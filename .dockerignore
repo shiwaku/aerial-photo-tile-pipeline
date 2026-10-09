@@ -5,4 +5,8 @@
 !scripts/
 !tools/
 !config/*.conf.example
+!viewer/
+viewer/node_modules
+viewer/dist
+viewer/.env.pages
 **/__pycache__

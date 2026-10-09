@@ -4,6 +4,7 @@
 # Usage: .\docker-run.ps1 config\<name>.conf [--from N] [--to N]
 #        .\docker-run.ps1 ./scripts/<step>.sh config/<name>.conf ...   # 個別ステップ
 #        .\docker-run.ps1 selftest                                       # オープンデータで動作確認
+#        .\docker-run.ps1 serve config\<name>.conf [port]                # ビューワで確認（既定 8080）
 #
 # 作業フォルダ（既定はカレントディレクトリ）の data\ output\ config\ をコンテナの
 # /work 以下にマウントする。設定ファイルのパスはこの作業フォルダからの相対で書く。
@@ -61,12 +62,26 @@ if ($image -notlike '*/*') {
 # コンテナの中は Linux なので、パスの区切りを / に直す
 $rest = @($args | ForEach-Object { "$_" -replace '\\', '/' })
 $first = $rest[0]
+# serve のときだけ使う docker run の追加オプション（ほかは空のまま。$null を足すと空の引数になる）
+$serveOpts = @()
 if ($first -like '*.conf') {
   $confPath = Join-Path $projectDir $first
   if (-not (Test-Path -LiteralPath $confPath -PathType Leaf)) { Fail "設定ファイルが見つかりません: $confPath" }
   $cmd = @('./scripts/run_pipeline.sh') + $rest
 } elseif ($first -eq 'selftest') {
   $cmd = @('./scripts/selftest.sh') + @($rest | Select-Object -Skip 1)
+} elseif ($first -eq 'serve') {
+  if ($rest.Count -lt 2) { Fail "使い方: .\docker-run.ps1 serve config\<name>.conf [port]" }
+  $serveConf = $rest[1]
+  $port = if ($rest.Count -ge 3) { $rest[2] } else { '8080' }
+  if ($port -notmatch '^\d+$') { Fail "ポートは数字で指定してください: $port" }
+  $confPath = Join-Path $projectDir $serveConf
+  if (-not (Test-Path -LiteralPath $confPath -PathType Leaf)) { Fail "設定ファイルが見つかりません: $confPath" }
+  # ビューワは output\<id>\ に置いて、コンテナの中の 8080 で配信する。
+  # 手元の 127.0.0.1 にだけつなぎ、同じネットワークのほかの PC からは見えないようにする。
+  # --init は Ctrl+C を配信サーバに届けて止めるため
+  $cmd = @('./scripts/serve.sh', $serveConf, '8080')
+  $serveOpts = @('-p', "127.0.0.1:${port}:8080", '-e', "HOST_PORT=$port", '--init', '--name', "aerial-tile-serve-$port")
 } else {
   $cmd = $rest
 }
@@ -79,6 +94,8 @@ $dockerArgs = @(
   'run', '--rm',
   '-e', 'HOME=/tmp',
   '-e', "HOST_PROJECT_DIR=$projectDir",
+  '-e', 'HOST_WRAPPER=docker-run.ps1'
+) + $serveOpts + @(
   '-v', "$(Join-Path $projectDir 'data'):/work/data",
   '-v', "$(Join-Path $projectDir 'output'):/work/output",
   '-v', "$(Join-Path $projectDir 'config'):/work/config:ro",
