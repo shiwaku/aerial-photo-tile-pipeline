@@ -198,7 +198,7 @@ aerial-photo-tile-pipeline/
 ├── Dockerfile                 # 実行環境（GDAL 3.13 + pmtiles）とスクリプト一式
 ├── docker-run.sh              # Docker で実行するホスト側ラッパー（macOS / Linux / WSL2）
 ├── docker-run.ps1             # 同（Windows PowerShell）
-└── LICENSE                    # Apache-2.0（対象はパイプラインとビューワ）
+└── LICENSE                    # MIT（対象はパイプラインとビューワ）
 ```
 
 ## 留意事項
@@ -211,7 +211,7 @@ aerial-photo-tile-pipeline/
 
 ## ライセンス
 
-本リポジトリのソースコードおよびドキュメントは [Apache License, Version 2.0](LICENSE) です。**パイプラインとビューワが対象で、入力する画像および生成したタイルには適用されません。**
+本リポジトリのソースコードおよびドキュメントは [MIT License](LICENSE) です。**パイプラインとビューワが対象で、入力する画像および生成したタイルには適用されません。**
 
 ## 参考
 
